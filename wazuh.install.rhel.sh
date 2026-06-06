@@ -119,10 +119,11 @@ if [ ! -d "$MOUNT_POINT" ]; then
 fi
 
 # ==========================================
-# 6. Montar temporalmente
+# 6. Montar temporalmente con las opciones de seguridad
 # ==========================================
-echo -e "${YELLOW}==> Montando temporalmente /dev/$VG_NAME/$LV_NAME en $MOUNT_POINT...${NC}"
-if ! mount "/dev/$VG_NAME/$LV_NAME" "$MOUNT_POINT" 2>/dev/null; then
+MOUNT_OPTIONS="defaults,nosuid,nodev"
+echo -e "${YELLOW}==> Montando temporalmente /dev/$VG_NAME/$LV_NAME en $MOUNT_POINT con opciones $MOUNT_OPTIONS...${NC}"
+if ! mount -o "$MOUNT_OPTIONS" "/dev/$VG_NAME/$LV_NAME" "$MOUNT_POINT" 2>/dev/null; then
   echo -e "${RED}❌ ERROR: No se pudo montar /dev/$VG_NAME/$LV_NAME en $MOUNT_POINT.${NC}"
   echo -e "${RED}   Abortando instalación.${NC}"
   exit 1
@@ -132,7 +133,7 @@ echo -e "${GREEN}==> Montaje temporal exitoso.${NC}"
 # ==========================================
 # 7. Añadir entrada al fstab
 # ==========================================
-FSTAB_ENTRY="/dev/$VG_NAME/$LV_NAME $MOUNT_POINT              ext4    nosuid,nodev 1 2"
+FSTAB_ENTRY="/dev/$VG_NAME/$LV_NAME $MOUNT_POINT              ext4    defaults,nosuid,nodev 1 2"
 echo -e "${YELLOW}==> Añadiendo entrada a /etc/fstab...${NC}"
 echo "$FSTAB_ENTRY" >>/etc/fstab
 
