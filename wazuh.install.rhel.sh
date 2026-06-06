@@ -179,11 +179,24 @@ if [[ ! "$CONFIRMAR_IP" =~ ^[Ss]$ ]]; then
 fi
 
 # ==========================================
-# 11. Confirmar datos antes de proceder
+# 11. Configurar Grupo del agente
+# ==========================================
+DEFAULT_GROUP="OrangeBox"
+echo -e "${YELLOW}==> Grupo por defecto: $DEFAULT_GROUP${NC}"
+read -p "¿Deseas usar este grupo para el agente? (s/N): " CONFIRMAR_GRUPO
+if [[ "$CONFIRMAR_GRUPO" =~ ^[Ss]$ ]]; then
+  AGENT_GROUP="$DEFAULT_GROUP"
+else
+  read -p "Ingresa el nombre del grupo para el agente: " AGENT_GROUP
+fi
+
+# ==========================================
+# 12. Confirmar datos antes de proceder
 # ==========================================
 echo -e "\n${GREEN}=== RESUMEN DE INSTALACIÓN ===${NC}"
 echo "  • Nombre del agente: $AGENT_NAME"
 echo "  • IP del Manager: $MANAGER_IP"
+echo "  • Grupo del agente: $AGENT_GROUP"
 echo "  • Versión del agente: 4.14.5-1.x86_64"
 echo -e "${YELLOW}===============================${NC}"
 read -p "¿Proceder con la instalación? (s/N): " CONFIRMAR_TODO
@@ -193,7 +206,7 @@ if [[ ! "$CONFIRMAR_TODO" =~ ^[Ss]$ ]]; then
 fi
 
 # ==========================================
-# 12. Descargar e instalar el agente Wazuh
+# 13. Descargar e instalar el agente Wazuh
 # ==========================================
 echo -e "${YELLOW}==> Descargando e instalando Wazuh agent...${NC}"
 if ! curl -o wazuh-agent-4.14.5-1.x86_64.rpm https://packages.wazuh.com/4.x/yum/wazuh-agent-4.14.5-1.x86_64.rpm 2>/dev/null; then
@@ -202,7 +215,7 @@ if ! curl -o wazuh-agent-4.14.5-1.x86_64.rpm https://packages.wazuh.com/4.x/yum/
   exit 1
 fi
 
-if ! WAZUH_MANAGER="$MANAGER_IP" WAZUH_AGENT_NAME="$AGENT_NAME" rpm -ihv wazuh-agent-4.14.5-1.x86_64.rpm 2>/dev/null; then
+if ! WAZUH_MANAGER="$MANAGER_IP" WAZUH_AGENT_NAME="$AGENT_NAME" WAZUH_AGENT_GROUP="$AGENT_GROUP" rpm -ihv wazuh-agent-4.14.5-1.x86_64.rpm 2>/dev/null; then
   echo -e "${RED}❌ ERROR: Falló la instalación del paquete Wazuh.${NC}"
   echo -e "${RED}   Puede que ya esté instalado o haya conflictos.${NC}"
   exit 1
@@ -210,7 +223,7 @@ fi
 echo -e "${GREEN}✅ Instalación del agente completada.${NC}"
 
 # ==========================================
-# 13. Habilitar e iniciar el servicio
+# 14. Habilitar e iniciar el servicio
 # ==========================================
 echo -e "${YELLOW}==> Habilitando e iniciando wazuh-agent...${NC}"
 if ! systemctl enable --now wazuh-agent 2>/dev/null; then
