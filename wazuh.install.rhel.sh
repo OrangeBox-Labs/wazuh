@@ -119,28 +119,16 @@ if [ ! -d "$MOUNT_POINT" ]; then
 fi
 
 # ==========================================
-# 6. Montar temporalmente con las opciones de seguridad
-# ==========================================
-MOUNT_OPTIONS="defaults,nosuid,nodev"
-echo -e "${YELLOW}==> Montando temporalmente /dev/$VG_NAME/$LV_NAME en $MOUNT_POINT con opciones $MOUNT_OPTIONS...${NC}"
-if ! mount -o "$MOUNT_OPTIONS" "/dev/$VG_NAME/$LV_NAME" "$MOUNT_POINT" 2>/dev/null; then
-  echo -e "${RED}❌ ERROR: No se pudo montar /dev/$VG_NAME/$LV_NAME en $MOUNT_POINT.${NC}"
-  echo -e "${RED}   Abortando instalación.${NC}"
-  exit 1
-fi
-echo -e "${GREEN}==> Montaje temporal exitoso.${NC}"
-
-# ==========================================
-# 7. Añadir entrada al fstab
+# 6. Añadir entrada al fstab
 # ==========================================
 FSTAB_ENTRY="/dev/$VG_NAME/$LV_NAME $MOUNT_POINT              ext4    defaults,nosuid,nodev 1 2"
 echo -e "${YELLOW}==> Añadiendo entrada a /etc/fstab...${NC}"
 echo "$FSTAB_ENTRY" >>/etc/fstab
 
 # ==========================================
-# 8. Verificar que el montaje automático funciona
+# 7. Montar la nueva partición usando la entrada del fstab
 # ==========================================
-echo -e "${YELLOW}==> Verificando montaje automático (mount -a)...${NC}"
+echo -e "${YELLOW}==> Montando $MOUNT_POINT según /etc/fstab...${NC}"
 if ! mount -a 2>/dev/null; then
   echo -e "${RED}❌ ERROR: 'mount -a' falló. La entrada en fstab puede ser incorrecta.${NC}"
   echo -e "${RED}   Eliminando entrada problemática de /etc/fstab...${NC}"
@@ -148,7 +136,7 @@ if ! mount -a 2>/dev/null; then
   echo -e "${RED}   Abortando instalación.${NC}"
   exit 1
 fi
-echo -e "${GREEN}==> Verificación exitosa.${NC}"
+echo -e "${GREEN}==> Montaje exitoso.${NC}"
 
 echo -e "${GREEN}✅ Preparación del volumen completada exitosamente.${NC}"
 echo "Resumen de la operación:"
