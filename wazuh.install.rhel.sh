@@ -214,11 +214,31 @@ echo -e "${GREEN}✅ Instalación del agente completada.${NC}"
 # ==========================================
 # 14. Habilitar e iniciar el servicio
 # ==========================================
-echo -e "${YELLOW}==> Habilitando e iniciando wazuh-agent...${NC}"
-if ! systemctl enable --now wazuh-agent 2>/dev/null; then
-  echo -e "${RED}❌ ERROR: No se pudo habilitar/iniciar el servicio wazuh-agent.${NC}"
-  echo -e "${RED}   Revisa los logs con: journalctl -u wazuh-agent${NC}"
-  exit 1
+
+if ! command -v systemctl &>/dev/null; then
+  # Sistema sin systemd (usar SysV init)
+  echo -e "${YELLOW}==> Habilitando e iniciando wazuh-agent con SysV init...${NC}"
+
+  # Habilitar para inicio automático
+  if command -v chkconfig &>/dev/null; then
+    chkconfig wazuh-agent on 2>/dev/null
+  elif command -v update-rc.d &>/dev/null; then
+    update-rc.d wazuh-agent defaults 2>/dev/null
+  fi
+
+  # Iniciar el servicio
+  if ! service wazuh-agent restart 2>/dev/null; then
+    echo -e "${RED}❌ ERROR: No se pudo iniciar el servicio wazuh-agent.${NC}"
+    exit 1
+  fi
+else
+  # Sistema con systemd
+  echo -e "${YELLOW}==> Habilitando e iniciando wazuh-agent...${NC}"
+  if ! systemctl enable --now wazuh-agent 2>/dev/null; then
+    echo -e "${RED}❌ ERROR: No se pudo habilitar/iniciar el servicio wazuh-agent.${NC}"
+    echo -e "${RED}   Revisa los logs con: journalctl -u wazuh-agent${NC}"
+    exit 1
+  fi
 fi
 
 echo -e "${GREEN}✅ Servicio wazuh-agent habilitado e iniciado.${NC}"
