@@ -36,8 +36,7 @@ Script principal que automatiza todo el proceso:
 ```
 git clone https://github.com/OrangeBox-Labs/wazuh/
 cd wazuh
-chmod +x install-wazuh-agent.sh
-./install-wazuh-agent.sh
+./wazuh.install.rhel.sh
 ```
 
 ## Configuración Personalizada
