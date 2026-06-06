@@ -132,7 +132,7 @@ echo -e "${GREEN}==> Montaje temporal exitoso.${NC}"
 # ==========================================
 # 7. Añadir entrada al fstab
 # ==========================================
-FSTAB_ENTRY="/dev/$VG_NAME/$LV_NAME $MOUNT_POINT            ext4    defaults,nosuid,nodev 1 2"
+FSTAB_ENTRY="/dev/$VG_NAME/$LV_NAME $MOUNT_POINT              ext4    nosuid,nodev 1 2"
 echo -e "${YELLOW}==> Añadiendo entrada a /etc/fstab...${NC}"
 echo "$FSTAB_ENTRY" >>/etc/fstab
 
