@@ -33,11 +33,12 @@ Script principal que automatiza todo el proceso:
 - Confirmación interactiva: Solicita confirmación antes de proceder con la instalación
 
 ## Uso Rápido
-
+```
 git clone https://github.com/OrangeBox-Labs/wazuh/wazuh-agent-installer.git
 cd wazuh-agent-installer
 chmod +x install-wazuh-agent.sh
 ./install-wazuh-agent.sh
+```
 
 ## Configuración Personalizada
 
