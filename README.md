@@ -47,7 +47,7 @@ El script solicitará interactivamente:
 - IP del Manager: Dirección del servidor Wazuh central (por defecto: 192.168.200.160)
 
 ## Estructura del Script
-
+```
 install-wazuh-agent.sh
 ├── Verificación de montaje previo
 ├── Detección del VG/LV de /var
@@ -59,7 +59,7 @@ install-wazuh-agent.sh
 ├── Configuración del agente
 ├── Descarga e instalación del RPM
 └── Habilitación del servicio
-
+```
 ## Parámetros Configurables
 
 Puedes modificar las siguientes variables dentro del script:
