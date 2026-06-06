@@ -34,7 +34,7 @@ Script principal que automatiza todo el proceso:
 
 ## Uso Rápido
 ```
-git clone https://github.com/OrangeBox-Labs/wazuh/wazuh-agent-installer.git
+git clone https://github.com/OrangeBox-Labs/wazuh/
 cd wazuh
 chmod +x install-wazuh-agent.sh
 ./install-wazuh-agent.sh
