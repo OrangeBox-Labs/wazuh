@@ -1,5 +1,7 @@
 # Scripts de Instalación y Configuración de Wazuh Agent
 
+Hola 
+
 Este repositorio contiene scripts automatizados para la instalación y configuración del agente de Wazuh en entornos Linux con políticas de seguridad restrictivas (como /var montado con noexec).
 
 ## Requisitos Previos
