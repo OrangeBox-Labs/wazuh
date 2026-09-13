@@ -1,126 +1,20 @@
-# Scripts de Instalación y Configuración de Wazuh Agent
+# Herramientas de Wazuh
 
-[← Volver al README principal del proyecto Wazuh](../README.md)
+[← Volver al README principal](../README.md)
 
-Este repositorio contiene scripts automatizados para la instalación y configuración del agente de Wazuh en entornos Linux con políticas de seguridad restrictivas (como /var montado con noexec).
+Este directorio contiene herramientas operativas para desplegar o administrar componentes de Wazuh.
 
-## Requisitos Previos
+## Instalador actual
 
-- Sistema Operativo: CentOS 7 / RHEL 7 o superior
-- Arquitectura: x86_64
-- Permisos: Acceso root o sudo
-- LVM: El directorio /var debe residir en un Volumen Lógico (LVM)
-- Espacio: Al menos 100 MB libres en el Volume Group de /var
+- [`wazuh.install.rhel.sh`](wazuh.install.rhel.sh) — instala el agente y prepara un filesystem dedicado para `/var/ossec`.
+- [`wazuh.install.rhel.md`](wazuh.install.rhel.md) — documentación técnica del comportamiento actual y de las decisiones de diseño.
 
-## Scripts Disponibles
+> **Importante:** el instalador será rediseñado posteriormente para incorporar la configuración de logs de firewall y el soporte requerido por las futuras detecciones de escaneo de puertos y DDoS. Su documentación actual describe únicamente las funciones que realmente implementa hoy.
 
-### install-wazuh-agent.sh
+## Criterio del directorio
 
-Script principal que automatiza todo el proceso:
+Los scripts de despliegue deben contener automatización operativa. La documentación técnica detallada de cada script se mantiene junto al archivo para registrar no solamente su uso, sino también sus limitaciones y decisiones de diseño.
 
-1. Verifica si /var/ossec ya está montado (evita conflictos)
-2. Crea un volumen lógico dedicado de 100 MB para Wazuh
-3. Formatea el volumen como ext4
-4. Monta el volumen en /var/ossec con opciones seguras (defaults,nosuid,nodev)
-5. Agrega la entrada correspondiente en /etc/fstab
-6. Solicita confirmación para el nombre del agente y la IP del manager
-7. Descarga e instala el agente Wazuh desde los repositorios oficiales
-8. Habilita e inicia el servicio wazuh-agent
+## Estado
 
-### Características de Seguridad
-
-- Validación pre-montaje: Verifica que no exista un montaje previo en /var/ossec
-- Controles de error: Cada paso crítico valida su ejecución y aborta en caso de fallo
-- Rollback automático: Si mount -a falla, elimina la entrada problemática de /etc/fstab
-- Confirmación interactiva: Solicita confirmación antes de proceder con la instalación
-
-## Uso Rápido
-
-```bash
-git clone https://github.com/OrangeBox-Labs/wazuh/
-cd wazuh/tools
-./wazuh.install.rhel.sh
-```
-
-## Configuración Personalizada
-
-El script solicitará interactivamente:
-
-- Nombre del agente: Identificador del equipo en Wazuh (por defecto: hostname del sistema)
-- IP del Manager: Dirección del servidor Wazuh central (por defecto: 192.168.200.160)
-
-## Estructura del Script
-
-```text
-install-wazuh-agent.sh
-├── Verificación de montaje previo
-├── Detección del VG/LV de /var
-├── Creación de LV dedicado (100 MB)
-├── Formateo ext4
-├── Montaje en /var/ossec
-├── Configuración de fstab
-├── Validación post-montaje
-├── Configuración del agente
-├── Descarga e instalación del RPM
-└── Habilitación del servicio
-```
-
-## Parámetros Configurables
-
-Puedes modificar las siguientes variables dentro del script:
-
-- LV_NAME: Nombre del volumen lógico (por defecto: wazuh)
-- LV_SIZE: Tamaño del volumen (por defecto: 100M)
-- MANAGER_IP: IP por defecto del Wazuh manager
-- AGENT_VERSION: Versión del paquete a instalar
-
-## Solución de Problemas
-
-Error: "No se pudo identificar un volumen lógico para /var"
-
-Causa: /var no está en un volumen LVM.
-Solución: El script requiere LVM. Verifica con lsblk o lvdisplay.
-
-Error: "Espacio insuficiente en el VG"
-
-Causa: El Volume Group no tiene al menos 100 MB libres.
-Solución: Libera espacio o extiende el VG.
-
-Error: "mount -a falló"
-
-Causa: La entrada en /etc/fstab es incorrecta.
-Solución: El script elimina automáticamente la entrada. Verifica manualmente con mount -a.
-
-## Verificación Post-Instalación
-
-```bash
-mount | grep /var/ossec
-systemctl status wazuh-agent
-journalctl -u wazuh-agent -f
-```
-
-## Notas Importantes
-
-- CentOS 7: Este script ha sido probado en CentOS 7.6+
-- noexec: Resuelve el problema de noexec en /var aislando Wazuh en su propia partición
-- Persistencia: El montaje en /var/ossec es persistente entre reinicios gracias a la entrada en /etc/fstab
-
-## Desinstalación
-
-```bash
-systemctl stop wazuh-agent
-systemctl disable wazuh-agent
-umount /var/ossec
-sed -i '/\/var\/ossec/d' /etc/fstab
-lvremove -f /dev/$(vgdisplay -c | cut -d: -f1 | head -1)/wazuh
-```
-
-## Contribuciones
-
-Las contribuciones son bienvenidas. Por favor, abre un issue primero para discutir los cambios propuestos.
-
----
-
-[← Volver al proyecto OrangeBox Wazuh](../README.md)
-
-Advertencia: Este script modifica la configuración de almacenamiento del sistema (LVM, fstab). Se recomienda probar en un entorno no productivo antes de usar en producción.
+Este directorio está en evolución junto con el proyecto OrangeBox Wazuh. Las capacidades de detección y respuesta deben implementarse primero en el ruleset/configuración y luego reflejarse en el deploy de agentes cuando corresponda.
