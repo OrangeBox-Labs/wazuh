@@ -8,6 +8,7 @@
         - Elevacion mediante su a root.
         - Fuerza bruta SSH seguida de login exitoso.
         - Movimiento lateral dentro de redes internas.
+        - Control de sudo -> root mediante whitelist de comandos.
 
     Convencion de IDs OrangeBox:
         10000 - 19999 = Reglas de deteccion.
@@ -18,12 +19,7 @@
         Las excepciones / whitelists se encuentran EXCLUSIVAMENTE
         al FINAL de este archivo.
 
-        No mover la seccion de whitelist antes de las reglas de deteccion,
-        ya que las excepciones utilizan <if_sid> sobre reglas OrangeBox
-        definidas anteriormente.
-
-        No agregar excepciones sin validar previamente que el origen,
-        usuario o actividad sean legitimos.
+        No mover la seccion de whitelist antes de las reglas de deteccion.
 
     No sobrescribimos reglas nativas de Wazuh.
     Las reglas OrangeBox se construyen como reglas hijas cuando corresponde.
@@ -54,16 +50,12 @@
      ================================================================
 
      IMPORTANTE:
-         Toda apertura exitosa de una sesion como root mediante los
-         mecanismos detectados por estas reglas pertenece al grupo
+         Toda elevacion exitosa a root mediante los mecanismos
+         detectados por estas reglas pertenece al grupo
          privilege_escalation_root.
 
          La integracion de correo utiliza este grupo para enviar la
          alerta inmediatamente, sin pasar por el buffer.
-
-         Esto permite que futuras reglas de elevacion exitosa a root
-         hereden automaticamente el comportamiento de correo inmediato
-         al incluir este grupo.
      ================================================================ -->
 <group name="orangebox,authentication,privilege_escalation,">
 
@@ -77,16 +69,30 @@
     </rule>
 
     <!--
-        Detecta apertura de una sesion sudo para root mediante PAM.
-        No dependemos de 5402 porque aqui utilizamos el evento observado:
-        sudo: pam_unix(sudo:session): session opened for user root...
+        5402 = Successful sudo to ROOT executed.
+
+        Esta regla reemplaza la deteccion anterior basada en 5501.
+        El evento 5402 contiene el campo dinamico "command", por lo que
+        podemos aplicar una whitelist de comandos sudo directamente sobre
+        el evento que contiene COMMAND=.
+
+        SEGURIDAD:
+          - Los comandos incluidos en la expresion negativa son los UNICOS
+            comandos sudo -> root actualmente considerados autorizados.
+          - Cualquier otro comando sudo -> root dispara esta regla.
+          - No se filtra por UID, usuario ni proceso.
+          - Agregar un comando a la whitelist requiere validarlo primero.
+
+        Los comandos actualmente autorizados corresponden a los binarios
+        observados en la politica sudo de Zimbra. Se mantienen exactos por
+        defecto; no se aceptan argumentos adicionales salvo zmstat-fd, que
+        explicitamente aparece con wildcard (*) en sudoers.
     -->
     <rule id="10005" level="13">
-        <if_sid>5501</if_sid>
-        <match>sudo:session</match>
-        <user>root</user>
-        <description>ALERTA: Usuario abrio una sesion SUDO como ROOT.</description>
-        <group>syslog,sudo,privilege_escalation,privilege_escalation_root,orangebox_auth,</group>
+        <if_sid>5402</if_sid>
+        <field name="command" negate="yes" type="pcre2">^/opt/zimbra/libexec/zmstat-fd(?:\s+.*)?$|^/opt/zimbra/common/sbin/postfix$|^/opt/zimbra/common/sbin/postalias$|^/opt/zimbra/common/sbin/qshape\.pl$|^/opt/zimbra/common/sbin/postconf$|^/opt/zimbra/common/sbin/postsuper$|^/opt/zimbra/common/sbin/postcat$|^/opt/zimbra/libexec/zmqstat$|^/opt/zimbra/libexec/zmmtastatus$|^/opt/zimbra/libexec/zmmailboxdmgr status$</field>
+        <description>ALERTA CRITICA: SUDO hacia ROOT con comando NO autorizado por la whitelist OrangeBox.</description>
+        <group>syslog,sudo,privilege_escalation,privilege_escalation_root,orangebox_auth,orangebox_sudo_whitelist_enforced,</group>
     </rule>
 
 </group>
@@ -135,15 +141,15 @@
      Convencion de IDs:
          20000 - 29999 = Excepciones / whitelists.
 
-     Estas reglas NO detectan actividad maliciosa.
-     Su objetivo es evitar que actividad previamente validada y
-     operacionalmente legitima sea tratada como alerta OrangeBox.
-
      IMPORTANTE:
-         - No agregar IPs, usuarios o servicios sin validacion previa.
-         - Las excepciones deben ser lo mas especificas posible.
-         - No utilizar una whitelist como sustituto de una regla de deteccion.
-         - Esta seccion debe permanecer despues de TODAS las reglas 10000-19999.
+         La whitelist de sudo -> root se implementa dentro de la regla
+         10005 mediante una expresion negativa sobre el campo "command".
+
+         Esto es intencional: una regla hija de 10005 con level=0 NO
+         eliminaria la alerta ya generada por 10005. Por eso la exclusion
+         debe ocurrir dentro de la condicion de la propia deteccion.
+
+         Las excepciones de SSH permanecen como reglas independientes.
      ================================================================= -->
 
 <group name="orangebox,authentication,ssh,whitelist,">
@@ -182,33 +188,9 @@
     </rule>
 
     <!--
-        Zimbra: excepcion para las aperturas sudo a root generadas por
-        la identidad operacional UID 995.
-
-        Validacion:
-          - En /etc/passwd, UID 995 corresponde a zimbra.
-          - Los eventos auditd muestran AUID="zimbra" (995) y exe="/usr/sbin/crond".
-          - El crontab de zimbra ejecuta periodicamente tareas propias del servicio.
-          - Los eventos 10005 observados en journald muestran uid=995 como
-            identidad de origen y se generan en rafagas coincidentes con
-            la actividad operacional de Zimbra.
-
-        Se filtra por UID y no solo por nombre, porque algunos eventos PAM
-        aparecen como "soporte(uid=995)" aunque el UID 995 pertenece a zimbra.
-
-        IMPORTANTE:
-          Esta excepcion evita la tormenta de 10005 causada por la actividad
-          operacional de Zimbra. La deteccion de escalamiento real de otras
-          identidades permanece activa.
-
-          A futuro, Auditd debera correlacionar el comando sudo ejecutado
-          para permitir una excepcion aun mas especifica por comando.
+        La antigua whitelist 20005 por UID 995 fue eliminada.
+        No se debe filtrar SUDO por UID, usuario o identidad de Zimbra.
+        El control correcto se realiza por comando en 10005.
     -->
-    <rule id="20005" level="3">
-        <if_sid>10005</if_sid>
-        <field name="data.uid">^995$</field>
-        <description>EXCEPCION: SUDO de Zimbra UID 995 hacia ROOT generado por actividad operacional.</description>
-        <group>sudo,privilege_escalation,orangebox_exception,orangebox_whitelist,zimbra,</group>
-    </rule>
 
 </group>
