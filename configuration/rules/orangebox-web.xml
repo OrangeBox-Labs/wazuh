@@ -32,18 +32,17 @@
 
         Cada respuesta HTTP 401 o 403 genera este evento.
 
-        El decoder web-accesslog entrega:
+        En esta instalacion:
 
-            data.srcip = IP origen
-            data.id    = codigo HTTP
-            data.url   = URL solicitada
+            31100 = regla base del web-accesslog
+            31101 = Web server 400 error code (HTTP 4xx)
 
-        Esta regla NO genera una alerta de ataque por si sola.
-        Sirve como evento padre para las reglas de correlacion.
+        31101 es el SID que realmente recibe el evento antes de
+        nuestra regla OrangeBox.
     -->
 
     <rule id="10024" level="5">
-        <if_sid>31100</if_sid>
+        <if_sid>31101</if_sid>
         <id>^401$|^403$</id>
         <description>HTTP 401/403 detectado contra servidor web.</description>
         <group>web,authentication,orangebox_web,</group>
