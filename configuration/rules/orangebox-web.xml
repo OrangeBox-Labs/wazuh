@@ -1,5 +1,9 @@
 <!-- ================================================================
      FUERZA BRUTA / ATAQUES DE AUTENTICACION WEB
+     ================================================================
+
+     Las excepciones / whitelists se mantienen separadas en:
+         orangebox-web-whitelist.xml
      ================================================================ -->
 
 <group name="orangebox,web,authentication,attack,">
@@ -56,34 +60,5 @@
         </mitre>
         <group>web,authentication,brute_force,attack,orangebox_web,</group>
     </rule>
-
-
-    <!--
-        20024
-        ------------------------------------------------------------
-        Excepcion para el reverse proxy 192.168.200.7.
-    -->
-
-    <rule id="20024" level="3">
-        <if_sid>10025</if_sid>
-        <srcip>192.168.200.7</srcip>
-        <description>EXCEPCION: Rafaga HTTP 401/403 proveniente del reverse proxy legitimo 192.168.200.7.</description>
-        <group>web,authentication,orangebox_exception,</group>
-    </rule>
-
-
-    <!--
-        20025
-        ------------------------------------------------------------
-        Excepcion para el reverse proxy 192.168.200.13.
-    -->
-
-    <rule id="20025" level="3">
-        <if_sid>10025</if_sid>
-        <srcip>192.168.200.13</srcip>
-        <description>EXCEPCION: Rafaga HTTP 401/403 proveniente del reverse proxy legitimo 192.168.200.13.</description>
-        <group>web,authentication,orangebox_exception,</group>
-    </rule>
-
 
 </group>
