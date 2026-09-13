@@ -1,5 +1,5 @@
 <!-- ================================================================
-     FUERZA BRUTA / ATAQUES DE AUTENTICACION WEB
+     ATAQUES WEB / FUERZA BRUTA / RECONOCIMIENTO
      ================================================================
 
      Las excepciones / whitelists se mantienen separadas en:
@@ -21,8 +21,8 @@
             data.id    = codigo HTTP
             data.url   = URL solicitada
 
-        Esta regla NO genera una alerta de fuerza bruta por si sola.
-        Sirve como evento padre para la regla de correlacion 10025.
+        Esta regla NO genera una alerta de ataque por si sola.
+        Sirve como evento padre para las reglas de correlacion.
     -->
 
     <rule id="10024" level="5">
@@ -35,30 +35,63 @@
     <!--
         10025
         ------------------------------------------------------------
-        Fuerza bruta web.
+        FUERZA BRUTA WEB.
 
-        La regla nativa 31101 detecta cualquier respuesta HTTP 4xx.
+        Se mantiene la correlacion de multiples respuestas 401/403
+        desde la misma IP, pero se excluyen explicitamente las rutas
+        de reconocimiento de archivos sensibles que pertenecen a 10026.
 
-        Aqui utilizamos 31101 como evento padre y exigimos que
-        el evento actual sea especificamente HTTP 401 o 403.
-
-        10 eventos desde la misma IP dentro de 15 segundos.
-
-        IMPORTANTE:
-        No usamos 31151 porque esa regla nativa ya representa una
-        correlacion especifica de errores 4xx y no una correlacion
-        exclusiva de 401/403.
+        Esto evita clasificar como "brute force" ataques que realmente
+        intentan descubrir credenciales, secretos o archivos locales.
     -->
 
     <rule id="10025" level="13" frequency="10" timeframe="15">
-        <if_matched_sid>31101</if_matched_sid>
+        <if_matched_sid>10024</if_matched_sid>
         <id>^401$|^403$</id>
-        <same_source_ip />
+        <url negate="yes">^/\.env|^/\.aws/|^/\.config/gcloud/|^/\.oci/|^/\.openai/|^/wp-config\.php|^/@fs/.*(\.env|\.aws/|\.config/gcloud/|\.oci/|\.openai/|wp-config\.php)</url>
+        <same_srcip />
         <description>ALERTA: Posible fuerza bruta web. Multiples respuestas HTTP 401/403 desde la misma IP.</description>
         <mitre>
             <id>T1110</id>
         </mitre>
         <group>web,authentication,brute_force,attack,orangebox_web,</group>
+    </rule>
+
+    <!--
+        10026
+        ------------------------------------------------------------
+        DESCUBRIMIENTO DE ARCHIVOS SENSIBLES / CREDENCIALES.
+
+        Detecta multiples intentos HTTP 401/403 contra rutas que suelen
+        contener secretos, credenciales o configuraciones sensibles.
+
+        Ejemplos:
+            /.env
+            /.aws/credentials
+            /.config/gcloud/application_default_credentials.json
+            /.oci/config
+            /.openai/config.json
+            /wp-config.php
+            /@fs/.../credenciales
+
+        Requiere 2 eventos desde la misma IP dentro de 30 segundos.
+        El objetivo es elevar solamente una secuencia de reconocimiento
+        automatizado y evitar bloquear por una solicitud aislada.
+
+        Nivel 15: Active Response puede ejecutar firewall-drop.
+    -->
+
+    <rule id="10026" level="15" frequency="2" timeframe="30">
+        <if_matched_sid>10024</if_matched_sid>
+        <id>^401$|^403$</id>
+        <url>^/\.env|^/\.aws/|^/\.config/gcloud/|^/\.oci/|^/\.openai/|^/wp-config\.php|^/@fs/.*(\.env|\.aws/|\.config/gcloud/|\.oci/|\.openai/|wp-config\.php)</url>
+        <same_srcip />
+        <description>ALERTA CRITICA: Posible reconocimiento automatizado de archivos sensibles o credenciales web. Multiples intentos desde la misma IP.</description>
+        <mitre>
+            <id>T1083</id>
+            <id>T1552</id>
+        </mitre>
+        <group>web,reconnaissance,credential_discovery,sensitive_file,attack,orangebox_web,</group>
     </rule>
 
 </group>
