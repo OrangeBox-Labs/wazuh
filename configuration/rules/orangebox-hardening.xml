@@ -1,0 +1,136 @@
+<!--
+    OrangeBox - Hardening / File Integrity Monitoring
+    Wazuh 4.14.x
+
+    550 = syscheck_integrity_changed
+    553 = syscheck_deleted
+-->
+
+<group name="orangebox,hardening,fim,">
+
+    <!-- ========================================================
+         FIM - MODIFICACIONES
+         ======================================================== -->
+
+    <!-- Archivos de identidad y control de acceso -->
+    <rule id="10030" level="13">
+        <if_sid>550</if_sid>
+        <field name="file">^/etc/passwd$|^/etc/shadow$|^/etc/group$|^/etc/gshadow$|^/etc/securetty$|^/etc/security/limits\.conf$</field>
+        <description>ALERTA: Archivo critico de identidad o control de acceso modificado.</description>
+        <group>identity,authentication,</group>
+    </rule>
+
+    <!-- Configuracion SSH -->
+    <rule id="10031" level="13">
+        <if_sid>550</if_sid>
+        <field name="file">^/etc/ssh/|^/etc/sshd/</field>
+        <description>ALERTA: Configuracion o archivo critico de SSH modificado.</description>
+        <group>ssh,authentication,</group>
+    </rule>
+
+    <!-- Configuracion SUDO -->
+    <rule id="10032" level="13">
+        <if_sid>550</if_sid>
+        <field name="file">^/etc/sudoers$|^/etc/sudoers\.d/|^/etc/sudoers\.conf$</field>
+        <description>ALERTA: Configuracion de SUDO modificada.</description>
+        <group>sudo,privilege_escalation,</group>
+    </rule>
+
+    <!-- Configuracion PAM -->
+    <rule id="10033" level="13">
+        <if_sid>550</if_sid>
+        <field name="file">^/etc/pam\.d/</field>
+        <description>ALERTA: Configuracion PAM modificada.</description>
+        <group>pam,authentication,</group>
+    </rule>
+
+    <!-- Configuracion y unidades SYSTEMD -->
+    <rule id="10034" level="13">
+        <if_sid>550</if_sid>
+        <field name="file">^/etc/systemd/system/|^/etc/systemd/user/</field>
+        <description>ALERTA: Unidad o configuracion persistente de SYSTEMD modificada.</description>
+        <group>systemd,persistence,</group>
+    </rule>
+
+    <!-- Configuracion CRON / ANACRON -->
+    <rule id="10035" level="13">
+        <if_sid>550</if_sid>
+        <field name="file">^/etc/cron\.d/|^/etc/crontab$|^/etc/anacrontab$</field>
+        <description>ALERTA: Configuracion de CRON o ANACRON modificada.</description>
+        <group>cron,persistence,</group>
+    </rule>
+
+    <!-- Configuracion de red, DNS y montajes -->
+    <rule id="10036" level="13">
+        <if_sid>550</if_sid>
+        <field name="file">^/etc/hosts$|^/etc/resolv\.conf$|^/etc/nsswitch\.conf$|^/etc/fstab$</field>
+        <description>ALERTA: Configuracion critica de red, DNS o montaje modificada.</description>
+        <group>network,dns,</group>
+    </rule>
+
+    <!-- Configuracion de firewall -->
+    <rule id="10037" level="13">
+        <if_sid>550</if_sid>
+        <field name="file">^/etc/shorewall/|^/etc/firewalld/|^/etc/ufw/|^/etc/csf/|^/etc/sysconfig/iptables$|^/etc/sysconfig/iptables\.save$|^/etc/sysconfig/iptables-config$|^/etc/sysconfig/nftables$|^/etc/sysconfig/nftables\.conf$|^/etc/nftables\.conf$|^/etc/imunify360/|^/etc/sysconfig/imunify360/</field>
+        <description>ALERTA: Configuracion de FIREWALL modificada.</description>
+        <group>firewall,network,</group>
+    </rule>
+
+</group>
+
+
+<!-- ============================================================
+     FIM - ELIMINACIONES
+     ============================================================ -->
+
+<group name="orangebox,hardening,fim,file_deletion,">
+
+    <!-- Archivos de identidad y control de acceso -->
+    <rule id="10040" level="15">
+        <if_sid>553</if_sid>
+        <field name="file">^/etc/passwd$|^/etc/shadow$|^/etc/group$|^/etc/gshadow$|^/etc/securetty$|^/etc/security/limits\.conf$</field>
+        <description>ALERTA CRITICA: Archivo de identidad o control de acceso eliminado.</description>
+        <group>identity,authentication,</group>
+    </rule>
+
+    <!-- Archivos y configuracion SSH -->
+    <rule id="10041" level="15">
+        <if_sid>553</if_sid>
+        <field name="file">^/etc/ssh/|^/etc/sshd/</field>
+        <description>ALERTA CRITICA: Archivo o configuracion de SSH eliminado.</description>
+        <group>ssh,authentication,</group>
+    </rule>
+
+    <!-- Configuracion SUDO -->
+    <rule id="10042" level="15">
+        <if_sid>553</if_sid>
+        <field name="file">^/etc/sudoers$|^/etc/sudoers\.d/|^/etc/sudoers\.conf$</field>
+        <description>ALERTA CRITICA: Configuracion de SUDO eliminada.</description>
+        <group>sudo,privilege_escalation,</group>
+    </rule>
+
+    <!-- Configuracion PAM -->
+    <rule id="10043" level="15">
+        <if_sid>553</if_sid>
+        <field name="file">^/etc/pam\.d/</field>
+        <description>ALERTA CRITICA: Configuracion PAM eliminada.</description>
+        <group>pam,authentication,</group>
+    </rule>
+
+    <!-- Unidades y configuracion SYSTEMD -->
+    <rule id="10044" level="15">
+        <if_sid>553</if_sid>
+        <field name="file">^/etc/systemd/system/|^/etc/systemd/user/</field>
+        <description>ALERTA CRITICA: Unidad o configuracion persistente de SYSTEMD eliminada.</description>
+        <group>systemd,persistence,</group>
+    </rule>
+
+    <!-- Configuracion CRON / ANACRON -->
+    <rule id="10045" level="15">
+        <if_sid>553</if_sid>
+        <field name="file">^/etc/cron\.d/|^/etc/crontab$|^/etc/anacrontab$</field>
+        <description>ALERTA CRITICA: Configuracion de CRON o ANACRON eliminada.</description>
+        <group>cron,persistence,</group>
+    </rule>
+
+</group>
