@@ -51,6 +51,19 @@
 
 <!-- ================================================================
      ELEVACION DE PRIVILEGIOS - SU / SUDO
+     ================================================================
+
+     IMPORTANTE:
+         Toda apertura exitosa de una sesion como root mediante los
+         mecanismos detectados por estas reglas pertenece al grupo
+         privilege_escalation_root.
+
+         La integracion de correo utiliza este grupo para enviar la
+         alerta inmediatamente, sin pasar por el buffer de 30 segundos.
+
+         Esto permite que futuras reglas de elevacion exitosa a root
+         hereden automaticamente el comportamiento de correo inmediato
+         al incluir este grupo.
      ================================================================ -->
 <group name="orangebox,authentication,privilege_escalation,">
 
@@ -60,7 +73,7 @@
         <match>su-l:session|su:session</match>
         <user>root</user>
         <description>ALERTA: Usuario cambio de sesion a ROOT mediante comando SU.</description>
-        <group>authentication_success,privilege_escalation,orangebox_auth,</group>
+        <group>authentication_success,privilege_escalation,privilege_escalation_root,orangebox_auth,</group>
     </rule>
 
     <!--
@@ -71,8 +84,9 @@
     <rule id="10005" level="13">
         <if_sid>5501</if_sid>
         <match>sudo:session</match>
+        <user>root</user>
         <description>ALERTA: Usuario abrio una sesion SUDO como ROOT.</description>
-        <group>syslog,sudo,privilege_escalation,orangebox_auth,</group>
+        <group>syslog,sudo,privilege_escalation,privilege_escalation_root,orangebox_auth,</group>
     </rule>
 
 </group>
