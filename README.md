@@ -2,7 +2,15 @@
 
 Configuraciones, reglas, integraciones y herramientas para desplegar y administrar **Wazuh** en entornos Linux empresariales.
 
-Este repositorio pertenece a **OrangeBox Labs** y está orientado a mantener de forma versionada y reproducible las configuraciones utilizadas en infraestructura Linux.
+Este repositorio pertenece a **OrangeBox Labs** y mantiene bajo control de versiones componentes utilizados para construir, operar y documentar una plataforma Wazuh reproducible.
+
+## Filosofía
+
+El repositorio no pretende ser solamente un lugar para guardar XML y scripts. Cada componente debe conservar también el contexto técnico que explica **por qué fue diseñado así**.
+
+Cuando una decisión nace de una prueba real, un falso positivo, una limitación de Wazuh o una alternativa descartada, esa información debe quedar documentada junto al componente correspondiente.
+
+> **Detectar primero, probar después, automatizar la contención al final.**
 
 ## Estructura
 
@@ -10,65 +18,139 @@ Este repositorio pertenece a **OrangeBox Labs** y está orientado a mantener de 
 wazuh/
 ├── README.md
 ├── configuration/
+│   ├── README.md
 │   ├── agents/
+│   │   ├── README.md
+│   │   └── default/
+│   │       ├── agent.conf
+│   │       └── agent.md
 │   ├── integrations/
+│   │   ├── README.md
+│   │   ├── custom-orangebox-email.py
+│   │   └── custom-orangebox-email.md
 │   ├── manager/
+│   │   ├── README.md
+│   │   ├── ossec.conf
+│   │   └── ossec.md
 │   ├── rules/
+│   │   ├── README.md
+│   │   ├── *.xml
+│   │   ├── *.yar
+│   │   └── *.md
 │   └── scripts/
+│       └── README.md
 │
 └── tools/
     ├── README.md
-    └── wazuh.install.rhel.sh
+    ├── wazuh.install.rhel.sh
+    └── wazuh.install.rhel.md
 ```
 
-### `configuration/`
+## `configuration/`
 
-Contiene los componentes de configuración de Wazuh, separados por función:
+Componentes que forman parte de la arquitectura Wazuh.
 
-- **`agents/`** — configuraciones y archivos destinados a los agentes Wazuh.
-- **`integrations/`** — integraciones externas y scripts utilizados por Wazuh.
-- **`manager/`** — configuración del Wazuh Manager.
-- **`rules/`** — reglas personalizadas y grupos de reglas.
-- **`scripts/`** — scripts auxiliares asociados a la configuración y operación de Wazuh.
+- **`agents/`** — configuración distribuida de agentes, principalmente FIM y monitoreo de integridad.
+- **`integrations/`** — integraciones propias, como el correo HTML de OrangeBox.
+- **`manager/`** — configuración global del Wazuh Manager.
+- **`rules/`** — reglas de detección/correlación y firmas YARA.
+- **`scripts/`** — espacio reservado para automatizaciones auxiliares relacionadas con la configuración u operación.
 
-### `tools/`
+Cada directorio tiene un `README.md` que funciona como índice. Los archivos funcionales tienen documentación técnica asociada con el mismo nombre base cuando corresponde.
 
-Contiene herramientas independientes para facilitar la instalación y administración.
+## `tools/`
 
-Actualmente incluye un script para la instalación de agentes Wazuh en sistemas RHEL/CentOS:
+Herramientas independientes para instalación y administración.
 
-- **`wazuh.install.rhel.sh`** — instalación automatizada del agente Wazuh, incluyendo soporte para entornos donde `/var` se encuentra montado con restricciones como `noexec`.
+Actualmente incluye:
 
-La documentación específica de esta herramienta se encuentra en [`tools/README.md`](tools/README.md).
+- **`wazuh.install.rhel.sh`** — instalador interactivo del agente Wazuh para sistemas RHEL/CentOS, incluyendo la preparación de `/var/ossec` en un volumen separado cuando corresponde.
+- **`wazuh.install.rhel.md`** — documentación del instalador y de sus decisiones actuales.
 
-## Objetivos
+### Estado especial del instalador
 
-- Mantener la configuración de Wazuh bajo control de versiones.
-- Separar claramente configuración, reglas, integraciones y herramientas.
-- Facilitar la recuperación y reconstrucción de un Wazuh Manager.
-- Mantener reglas personalizadas documentadas y reproducibles.
-- Evitar configuraciones manuales difíciles de auditar.
-- Permitir reutilizar componentes en nuevos servidores o instalaciones.
+El instalador actual está documentado **tal como funciona hoy** y no debe interpretarse como la arquitectura definitiva de despliegue.
 
-## Seguridad
+Existe un rediseño pendiente para incorporar la configuración necesaria para recolectar logs de firewall y soportar correctamente futuras detecciones de:
 
-Este repositorio puede contener configuraciones de seguridad y reglas utilizadas en infraestructura real.
+- `firewall-drop`;
+- escaneo de puertos;
+- DDoS;
+- registro y trazabilidad de acciones de Active Response.
 
-**No se deben almacenar en GitHub:**
+Ese rediseño se hará como una etapa independiente, después de definir y probar las nuevas reglas.
 
-- Contraseñas.
-- Tokens o API keys.
-- Claves privadas.
-- Certificados privados.
-- Credenciales SMTP.
-- Secretos de integraciones.
-- Información sensible específica de una infraestructura.
+## Reglas OrangeBox
+
+Las reglas personalizadas utilizan IDs propios y aprovechan, cuando es posible, los eventos y SIDs nativos de Wazuh.
+
+La arquitectura actual incluye detecciones para:
+
+- autenticación SSH, SUDO y SU;
+- fuerza bruta y correlación de login exitoso;
+- cambios críticos de configuración;
+- firewall;
+- ataques y reconocimiento web;
+- archivos temporales y ejecutables sospechosos;
+- webshells y malware mediante FIM + YARA.
+
+Las reglas y sus decisiones de diseño están documentadas individualmente en `configuration/rules/`.
+
+## Alertamiento
+
+La arquitectura de alertamiento separa detección y entrega:
+
+```text
+evento
+  ↓
+Wazuh / ruleset nativo
+  ↓
+regla OrangeBox
+  ↓
+alerta
+  ├── correo HTML personalizado
+  └── Active Response cuando corresponde
+```
+
+La integración de correo conserva evidencia FIM, agrupa alertas no inmediatas y aplica deduplicación específica para determinados eventos SSH.
+
+## Seguridad del repositorio
+
+Este repositorio puede contener configuraciones de seguridad utilizadas en infraestructura real.
+
+**Nunca almacenar en GitHub:**
+
+- contraseñas;
+- tokens o API keys;
+- claves privadas;
+- certificados privados;
+- credenciales SMTP;
+- secretos de integraciones;
+- información sensible específica de una infraestructura.
 
 Los valores dependientes del entorno deben mantenerse como variables, placeholders o archivos gestionados fuera del repositorio cuando corresponda.
 
+## Documentación como historial de ingeniería
+
+La documentación de cada componente debe intentar conservar:
+
+1. propósito;
+2. arquitectura;
+3. comportamiento actual;
+4. razón de cada decisión importante;
+5. dependencias;
+6. falsos positivos encontrados;
+7. alternativas probadas y descartadas;
+8. pruebas realizadas;
+9. relación con otras reglas, correo y Active Response;
+10. limitaciones conocidas;
+11. cambios futuros previstos.
+
+Esto permite que el repositorio sirva tanto para desplegar como para entender la evolución de la solución.
+
 ## Estado del proyecto
 
-El repositorio se encuentra en desarrollo activo. La estructura inicial está preparada para incorporar progresivamente la configuración del Wazuh Manager, reglas personalizadas, integraciones, configuraciones de agentes y scripts auxiliares.
+Proyecto en desarrollo activo. La base actual corresponde a una configuración real que está siendo consolidada y probada antes de convertirla en una plataforma más automatizada y reutilizable.
 
 ---
 
