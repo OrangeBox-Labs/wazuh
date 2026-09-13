@@ -59,7 +59,7 @@
          privilege_escalation_root.
 
          La integracion de correo utiliza este grupo para enviar la
-         alerta inmediatamente, sin pasar por el buffer de 30 segundos.
+         alerta inmediatamente, sin pasar por el buffer.
 
          Esto permite que futuras reglas de elevacion exitosa a root
          hereden automaticamente el comportamiento de correo inmediato
@@ -179,6 +179,36 @@
         <user>certcoopeuch</user>
         <description>EXCEPCION: Acceso SFTP automatizado legitimo de certcoopeuch.</description>
         <group>authentication_success,orangebox_exception,orangebox_whitelist,sftp,</group>
+    </rule>
+
+    <!--
+        Zimbra: excepcion para las aperturas sudo a root generadas por
+        la identidad operacional UID 995.
+
+        Validacion:
+          - En /etc/passwd, UID 995 corresponde a zimbra.
+          - Los eventos auditd muestran AUID="zimbra" (995) y exe="/usr/sbin/crond".
+          - El crontab de zimbra ejecuta periodicamente tareas propias del servicio.
+          - Los eventos 10005 observados en journald muestran uid=995 como
+            identidad de origen y se generan en rafagas coincidentes con
+            la actividad operacional de Zimbra.
+
+        Se filtra por UID y no solo por nombre, porque algunos eventos PAM
+        aparecen como "soporte(uid=995)" aunque el UID 995 pertenece a zimbra.
+
+        IMPORTANTE:
+          Esta excepcion evita la tormenta de 10005 causada por la actividad
+          operacional de Zimbra. La deteccion de escalamiento real de otras
+          identidades permanece activa.
+
+          A futuro, Auditd debera correlacionar el comando sudo ejecutado
+          para permitir una excepcion aun mas especifica por comando.
+    -->
+    <rule id="20005" level="3">
+        <if_sid>10005</if_sid>
+        <field name="data.uid">^995$</field>
+        <description>EXCEPCION: SUDO de Zimbra UID 995 hacia ROOT generado por actividad operacional.</description>
+        <group>sudo,privilege_escalation,orangebox_exception,orangebox_whitelist,zimbra,</group>
     </rule>
 
 </group>
