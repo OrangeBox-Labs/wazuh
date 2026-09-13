@@ -11,12 +11,8 @@
          Las excepciones / whitelists se encuentran EXCLUSIVAMENTE
          al FINAL de este archivo.
 
-         No mover la seccion de whitelist antes de las reglas de deteccion,
-         ya que las excepciones utilizan <if_sid> sobre reglas OrangeBox
-         definidas anteriormente.
-
-         No agregar excepciones sin validar previamente que el origen
-         corresponda a infraestructura legitima.
+         Las reglas que utilizan <if_sid> o <if_matched_sid> deben
+         referenciar reglas definidas previamente en este archivo.
 ================================================================ -->
 
 <!-- ================================================================
@@ -24,6 +20,28 @@
      ================================================================ -->
 
 <group name="orangebox,web,authentication,attack,">
+
+    <!--
+        10024
+        ------------------------------------------------------------
+        Regla BASE.
+
+        Cada respuesta HTTP 401 o 403 genera este evento.
+
+        En esta instalacion:
+            31100 = regla base del web-accesslog
+            31101 = Web server 400 error code (HTTP 4xx)
+
+        31101 es el SID que realmente recibe el evento antes de
+        nuestra regla OrangeBox.
+    -->
+
+    <rule id="10024" level="5">
+        <if_sid>31101</if_sid>
+        <id>^401$|^403$</id>
+        <description>HTTP 401/403 detectado contra servidor web.</description>
+        <group>web,authentication,orangebox_web,</group>
+    </rule>
 
     <!--
         10023
@@ -44,39 +62,13 @@
     </rule>
 
     <!--
-        10024
-        ------------------------------------------------------------
-        Regla BASE.
-
-        Cada respuesta HTTP 401 o 403 genera este evento.
-
-        En esta instalacion:
-
-            31100 = regla base del web-accesslog
-            31101 = Web server 400 error code (HTTP 4xx)
-
-        31101 es el SID que realmente recibe el evento antes de
-        nuestra regla OrangeBox.
-    -->
-
-    <rule id="10024" level="5">
-        <if_sid>31101</if_sid>
-        <id>^401$|^403$</id>
-        <description>HTTP 401/403 detectado contra servidor web.</description>
-        <group>web,authentication,orangebox_web,</group>
-    </rule>
-
-    <!--
         10025
         ------------------------------------------------------------
         FUERZA BRUTA WEB.
 
-        Se mantiene la correlacion de multiples respuestas 401/403
-        desde la misma IP, pero se excluyen explicitamente las rutas
-        de reconocimiento de archivos sensibles que pertenecen a 10023.
-
-        Esto evita clasificar como "brute force" ataques que realmente
-        intentan descubrir credenciales, secretos o archivos locales.
+        Multiples respuestas 401/403 desde la misma IP.
+        Se excluyen explicitamente las rutas de reconocimiento de
+        archivos sensibles que pertenecen a 10023.
     -->
 
     <rule id="10025" level="13" frequency="10" timeframe="15">
@@ -100,9 +92,6 @@
         sensible individual despues de pasar por 10024.
 
         Requiere 2 eventos 10023 desde la misma IP dentro de 30 segundos.
-        El objetivo es elevar solamente una secuencia de reconocimiento
-        automatizado y evitar bloquear por una solicitud aislada.
-
         Nivel 15: Active Response puede ejecutar firewall-drop.
     -->
 
