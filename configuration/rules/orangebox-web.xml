@@ -2,8 +2,25 @@
      ATAQUES WEB / FUERZA BRUTA / RECONOCIMIENTO
      ================================================================
 
-     Las excepciones / whitelists se mantienen separadas en:
-         orangebox-web-whitelist.xml
+     Convencion de IDs OrangeBox:
+         10000 - 19999 = Reglas de deteccion.
+         20000 - 29999 = Excepciones / whitelists.
+
+     IMPORTANTE:
+         Las reglas de deteccion se definen primero.
+         Las excepciones / whitelists se encuentran EXCLUSIVAMENTE
+         al FINAL de este archivo.
+
+         No mover la seccion de whitelist antes de las reglas de deteccion,
+         ya que las excepciones utilizan <if_sid> sobre reglas OrangeBox
+         definidas anteriormente.
+
+         No agregar excepciones sin validar previamente que el origen
+         corresponda a infraestructura legitima.
+================================================================ -->
+
+<!-- ================================================================
+     REGLAS DE DETECCION
      ================================================================ -->
 
 <group name="orangebox,web,authentication,attack,">
@@ -92,6 +109,45 @@
             <id>T1552</id>
         </mitre>
         <group>web,reconnaissance,credential_discovery,sensitive_file,attack,orangebox_web,</group>
+    </rule>
+
+</group>
+
+
+<!-- =================================================================
+     EXCEPCIONES / WHITELIST - ESTA SECCION SIEMPRE VA AL FINAL
+     =================================================================
+
+     Convencion de IDs:
+         20000 - 29999 = Excepciones / whitelists.
+
+     Estas reglas NO detectan actividad maliciosa.
+     Su objetivo es evitar que actividad previamente validada y
+     operacionalmente legitima sea tratada como alerta OrangeBox.
+
+     IMPORTANTE:
+         - No agregar IPs, usuarios o servicios sin validacion previa.
+         - Las excepciones deben ser lo mas especificas posible.
+         - No utilizar una whitelist como sustituto de una regla de deteccion.
+         - Esta seccion debe permanecer despues de TODAS las reglas 10000-19999.
+     ================================================================= -->
+
+<group name="orangebox,web,authentication,whitelist,">
+
+    <!-- Reverse proxy legitimo 192.168.200.7 -->
+    <rule id="20024" level="3">
+        <if_sid>10025</if_sid>
+        <srcip>192.168.200.7</srcip>
+        <description>EXCEPCION: Rafaga HTTP 401/403 proveniente del reverse proxy legitimo 192.168.200.7.</description>
+        <group>web,authentication,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+    <!-- Reverse proxy legitimo 192.168.200.13 -->
+    <rule id="20025" level="3">
+        <if_sid>10025</if_sid>
+        <srcip>192.168.200.13</srcip>
+        <description>EXCEPCION: Rafaga HTTP 401/403 proveniente del reverse proxy legitimo 192.168.200.13.</description>
+        <group>web,authentication,orangebox_exception,orangebox_whitelist,</group>
     </rule>
 
 </group>
