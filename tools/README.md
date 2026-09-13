@@ -1,5 +1,6 @@
 # Scripts de Instalación y Configuración de Wazuh Agent
 
+[← Volver al README principal del proyecto Wazuh](../README.md)
 
 Este repositorio contiene scripts automatizados para la instalación y configuración del agente de Wazuh en entornos Linux con políticas de seguridad restrictivas (como /var montado con noexec).
 
@@ -34,9 +35,10 @@ Script principal que automatiza todo el proceso:
 - Confirmación interactiva: Solicita confirmación antes de proceder con la instalación
 
 ## Uso Rápido
-```
+
+```bash
 git clone https://github.com/OrangeBox-Labs/wazuh/
-cd wazuh
+cd wazuh/tools
 ./wazuh.install.rhel.sh
 ```
 
@@ -48,7 +50,8 @@ El script solicitará interactivamente:
 - IP del Manager: Dirección del servidor Wazuh central (por defecto: 192.168.200.160)
 
 ## Estructura del Script
-```
+
+```text
 install-wazuh-agent.sh
 ├── Verificación de montaje previo
 ├── Detección del VG/LV de /var
@@ -61,6 +64,7 @@ install-wazuh-agent.sh
 ├── Descarga e instalación del RPM
 └── Habilitación del servicio
 ```
+
 ## Parámetros Configurables
 
 Puedes modificar las siguientes variables dentro del script:
@@ -89,9 +93,11 @@ Solución: El script elimina automáticamente la entrada. Verifica manualmente c
 
 ## Verificación Post-Instalación
 
+```bash
 mount | grep /var/ossec
 systemctl status wazuh-agent
 journalctl -u wazuh-agent -f
+```
 
 ## Notas Importantes
 
@@ -101,17 +107,20 @@ journalctl -u wazuh-agent -f
 
 ## Desinstalación
 
+```bash
 systemctl stop wazuh-agent
 systemctl disable wazuh-agent
 umount /var/ossec
 sed -i '/\/var\/ossec/d' /etc/fstab
 lvremove -f /dev/$(vgdisplay -c | cut -d: -f1 | head -1)/wazuh
-
+```
 
 ## Contribuciones
 
 Las contribuciones son bienvenidas. Por favor, abre un issue primero para discutir los cambios propuestos.
 
 ---
+
+[← Volver al proyecto OrangeBox Wazuh](../README.md)
 
 Advertencia: Este script modifica la configuración de almacenamiento del sistema (LVM, fstab). Se recomienda probar en un entorno no productivo antes de usar en producción.
