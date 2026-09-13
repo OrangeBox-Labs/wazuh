@@ -4,6 +4,20 @@
 
     550 = syscheck_integrity_changed
     553 = syscheck_deleted
+
+    NOTA SOBRE IPTABLES:
+    /etc/sysconfig/iptables.save puede ser regenerado por servicios de
+    persistencia de iptables. En ese proceso cambian normalmente la fecha
+    de generacion y los contadores de paquetes/bytes, aunque ninguna regla
+    del firewall haya sido modificada.
+
+    Por este motivo iptables.save NO se utiliza como disparador de la alerta
+    de hardening 10037. El archivo puede seguir siendo monitoreado por FIM,
+    pero sus cambios normales no se elevan a una alerta de configuracion.
+
+    La configuracion efectiva de iptables (/etc/sysconfig/iptables) sigue
+    protegida por la regla 10037. Los cambios reales de firewall se trataran
+    posteriormente con contexto de proceso/auditd para evitar falsos positivos.
 -->
 
 <group name="orangebox,hardening,fim,">
@@ -68,10 +82,17 @@
         <group>network,dns,</group>
     </rule>
 
-    <!-- Configuracion de firewall -->
+    <!--
+         Configuracion efectiva de firewall.
+
+         IMPORTANTE:
+         Se excluye /etc/sysconfig/iptables.save porque puede ser regenerado
+         automaticamente por el servicio de persistencia. Ese proceso cambia
+         timestamps y contadores de trafico sin modificar las reglas reales.
+    -->
     <rule id="10037" level="13">
         <if_sid>550</if_sid>
-        <field name="file">^/etc/shorewall/|^/etc/firewalld/|^/etc/ufw/|^/etc/csf/|^/etc/sysconfig/iptables$|^/etc/sysconfig/iptables\.save$|^/etc/sysconfig/iptables-config$|^/etc/sysconfig/nftables$|^/etc/sysconfig/nftables\.conf$|^/etc/nftables\.conf$|^/etc/imunify360/|^/etc/sysconfig/imunify360/</field>
+        <field name="file">^/etc/shorewall/|^/etc/firewalld/|^/etc/ufw/|^/etc/csf/|^/etc/sysconfig/iptables$|^/etc/sysconfig/iptables-config$|^/etc/sysconfig/nftables$|^/etc/sysconfig/nftables\.conf$|^/etc/nftables\.conf$|^/etc/imunify360/|^/etc/sysconfig/imunify360/</field>
         <description>ALERTA: Configuracion de FIREWALL modificada.</description>
         <group>firewall,network,</group>
     </rule>
