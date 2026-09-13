@@ -1,0 +1,130 @@
+<!--
+    OrangeBox Wazuh - Reglas de autenticacion
+    ================================================================
+
+    Proposito:
+        - Inicios de sesion SSH exitosos.
+        - Excepciones de accesos SSH legitimos.
+        - Uso de sudo.
+        - Elevacion mediante su a root.
+        - Fuerza bruta SSH seguida de login exitoso.
+        - Movimiento lateral dentro de redes internas.
+
+    Convencion de IDs OrangeBox:
+        10000 - 19999 = Reglas de deteccion.
+        20000 - 29999 = Excepciones / whitelists.
+
+    No sobrescribimos reglas nativas de Wazuh.
+    Las reglas OrangeBox se construyen como reglas hijas cuando corresponde.
+-->
+
+
+<!-- ================================================================
+     SSH - AUTENTICACION EXITOSA
+     ================================================================ -->
+<group name="orangebox,authentication,ssh,">
+
+    <!-- 5715 = autenticacion SSH exitosa. -->
+    <rule id="10001" level="13">
+        <if_sid>5715</if_sid>
+        <description>ALERTA: Inicio de sesion SSH exitoso.</description>
+        <group>authentication_success,orangebox_auth,orangebox_ssh,</group>
+    </rule>
+
+    <!-- Excepciones conocidas de BackupPC. -->
+    <rule id="20001" level="3">
+        <if_sid>10001</if_sid>
+        <srcip>192.168.200.1</srcip>
+        <description>EXCEPCION: SSH exitoso legitimo desde BackupPC (192.168.200.1).</description>
+        <group>authentication_success,orangebox_exception,</group>
+    </rule>
+
+    <rule id="20002" level="3">
+        <if_sid>10001</if_sid>
+        <srcip>192.168.1.31</srcip>
+        <description>EXCEPCION: SSH exitoso legitimo desde BackupPC (192.168.1.31).</description>
+        <group>authentication_success,orangebox_exception,</group>
+    </rule>
+
+    <rule id="20003" level="3">
+        <if_sid>10001</if_sid>
+        <srcip>192.168.100.103</srcip>
+        <description>EXCEPCION: SSH exitoso legitimo desde BackupPC (192.168.100.103).</description>
+        <group>authentication_success,orangebox_exception,</group>
+    </rule>
+
+    <!-- Excepcion SFTP automatizado de certcoopeuch. -->
+    <rule id="20004" level="3">
+        <if_sid>10001</if_sid>
+        <srcip>190.171.174.116</srcip>
+        <user>certcoopeuch</user>
+        <description>EXCEPCION: Acceso SFTP automatizado legitimo de certcoopeuch.</description>
+        <group>authentication_success,orangebox_exception,sftp,</group>
+    </rule>
+
+</group>
+
+
+<!-- ================================================================
+     ELEVACION DE PRIVILEGIOS - SU / SUDO
+     ================================================================ -->
+<group name="orangebox,authentication,privilege_escalation,">
+
+    <!-- 5501 = PAM login session opened. -->
+    <rule id="10004" level="13">
+        <if_sid>5501</if_sid>
+        <match>su-l:session|su:session</match>
+        <user>root</user>
+        <description>ALERTA: Usuario cambio de sesion a ROOT mediante comando SU.</description>
+        <group>authentication_success,privilege_escalation,orangebox_auth,</group>
+    </rule>
+
+    <!--
+        Detecta apertura de una sesion sudo para root mediante PAM.
+        No dependemos de 5402 porque aqui utilizamos el evento observado:
+        sudo: pam_unix(sudo:session): session opened for user root...
+    -->
+    <rule id="10005" level="13">
+        <if_sid>5501</if_sid>
+        <match>sudo:session</match>
+        <description>ALERTA: Usuario abrio una sesion SUDO como ROOT.</description>
+        <group>syslog,sudo,privilege_escalation,orangebox_auth,</group>
+    </rule>
+
+</group>
+
+
+<!-- ================================================================
+     SSH - FUERZA BRUTA COMPLETADA CON EXITO
+     ================================================================
+
+     5720 = secuencia de brute force SSH.
+     5715 = autenticacion SSH exitosa.
+
+     La alerta solamente aparece cuando ambos eventos ocurren.
+     ================================================================ -->
+<group name="orangebox,authentication,ssh,attack,">
+
+    <rule id="10006" level="13">
+        <if_sid>5715</if_sid>
+        <if_matched_sid>5720</if_matched_sid>
+        <description>ALERTA: Intento de Fuerza Bruta SSH COMPLETADO CON EXITO.</description>
+        <group>authentication_success,authentication_failures,brute_force,attack,orangebox_ssh,</group>
+    </rule>
+
+</group>
+
+
+<!-- ================================================================
+     MOVIMIENTO LATERAL - SSH DESDE RED INTERNA
+     ================================================================ -->
+<group name="orangebox,authentication,lateral_movement,attack,">
+
+    <rule id="10007" level="13">
+        <if_sid>5712</if_sid>
+        <match>from 192.168.|from 10.8.</match>
+        <description>ALERTA: Posible movimiento lateral. Rafaga de fallos SSH desde la red interna.</description>
+        <group>authentication_failed,lateral_movement,attack,orangebox_auth,</group>
+    </rule>
+
+</group>
