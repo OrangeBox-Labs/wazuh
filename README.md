@@ -8,6 +8,7 @@ Este repositorio pertenece a **OrangeBox Labs** y está orientado a mantener de 
 
 ```text
 wazuh/
+├── README.md
 ├── configuration/
 │   ├── agents/
 │   ├── integrations/
@@ -69,8 +70,8 @@ Los valores dependientes del entorno deben mantenerse como variables, placeholde
 
 El repositorio se encuentra en desarrollo activo. La estructura inicial está preparada para incorporar progresivamente la configuración del Wazuh Manager, reglas personalizadas, integraciones, configuraciones de agentes y scripts auxiliares.
 
-## Organización
+---
 
-**OrangeBox Labs**
+**OrangeBox Enterprise Infrastructure** — Infraestructura Linux Enterprise, Seguridad y Alta Disponibilidad en Chile.
 
-Infraestructura Linux · Seguridad · Monitoreo · Continuidad Operacional
+[🌐 www.orangebox.cl](https://www.orangebox.cl/)
