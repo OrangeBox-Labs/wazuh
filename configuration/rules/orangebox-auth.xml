@@ -124,18 +124,26 @@
      SSH - FUERZA BRUTA COMPLETADA CON EXITO
      ================================================================
 
-     5720 = secuencia de brute force SSH.
-     5715 = autenticacion SSH exitosa.
+     5763 = secuencia de brute force SSH basada en 5760.
+     10001 = autenticacion SSH realmente exitosa.
 
-     La alerta solamente aparece cuando ambos eventos ocurren.
+     La alerta solamente aparece cuando ambos eventos ocurren desde
+     la misma IP y el login exitoso ocurre despues de la deteccion
+     de brute force.
+
+     IMPORTANTE:
+         No usamos 5720 aqui. En la instalacion actual, la secuencia
+         que se dispara para los eventos de autenticacion fallida
+         utilizados en nuestras pruebas es 5760 -> 5763.
      ================================================================ -->
 <group name="orangebox,authentication,ssh,attack,">
 
     <rule id="10006" level="13">
-        <if_sid>5715</if_sid>
-        <if_matched_sid>5720</if_matched_sid>
-        <description>ALERTA: Intento de Fuerza Bruta SSH COMPLETADO CON EXITO.</description>
-        <group>authentication_success,authentication_failures,brute_force,attack,orangebox_ssh,</group>
+        <if_sid>10001</if_sid>
+        <if_matched_sid>5763</if_matched_sid>
+        <same_source_ip/>
+        <description>ALERTA: Fuerza Bruta SSH COMPLETADA CON EXITO. Login exitoso posterior a multiples fallos de autenticacion.</description>
+        <group>authentication_success,authentication_failures,brute_force,attack,orangebox_ssh,orangebox_auth,</group>
     </rule>
 
 </group>
