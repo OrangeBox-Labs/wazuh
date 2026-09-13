@@ -30,16 +30,14 @@
         ------------------------------------------------------------
         INDICADOR BASE DE RECONOCIMIENTO DE ARCHIVOS SENSIBLES.
 
-        Cada respuesta HTTP 401 o 403 contra una ruta sensible genera
-        este evento. Es una regla de contexto para que 10026 pueda
-        correlacionar multiples solicitudes desde la misma IP.
+        El evento primero debe pasar por 10024 (HTTP 401/403).
+        Luego esta regla clasifica el evento como solicitud sensible.
 
         No bloquea por si sola y no esta pensada para generar correo.
     -->
 
     <rule id="10023" level="5">
-        <if_sid>31101</if_sid>
-        <id>^401$|^403$</id>
+        <if_sid>10024</if_sid>
         <url>^/\.env|^/\.aws/|^/\.config/gcloud/|^/\.oci/|^/\.openai/|^/wp-config\.php|^/@fs/.*(\.env|\.aws/|\.config/gcloud/|\.oci/|\.openai/|wp-config\.php)</url>
         <description>HTTP 401/403 contra archivo sensible o credencial potencial.</description>
         <group>web,reconnaissance,credential_discovery,sensitive_file,orangebox_web,</group>
@@ -98,8 +96,8 @@
         ------------------------------------------------------------
         DESCUBRIMIENTO DE ARCHIVOS SENSIBLES / CREDENCIALES.
 
-        Correlaciona la regla 10023, que ya clasifica cada solicitud
-        sensible individual.
+        Correlaciona la regla 10023, que clasifica cada solicitud
+        sensible individual despues de pasar por 10024.
 
         Requiere 2 eventos 10023 desde la misma IP dentro de 30 segundos.
         El objetivo es elevar solamente una secuencia de reconocimiento
