@@ -18,13 +18,22 @@
     La configuracion efectiva de iptables (/etc/sysconfig/iptables) sigue
     protegida por la regla 10037. Los cambios reales de firewall se trataran
     posteriormente con contexto de proceso/auditd para evitar falsos positivos.
+
+    Convencion de IDs OrangeBox:
+        10000 - 19999 = Reglas de deteccion.
+        20000 - 29999 = Excepciones / whitelists.
+
+    IMPORTANTE:
+        Las reglas de deteccion se definen primero.
+        Las excepciones / whitelists se encuentran EXCLUSIVAMENTE
+        al FINAL de este archivo.
 -->
 
-<group name="orangebox,hardening,fim,">
+<!-- ================================================================
+     REGLAS DE DETECCION - MODIFICACIONES
+     ================================================================ -->
 
-    <!-- ========================================================
-         FIM - MODIFICACIONES
-         ======================================================== -->
+<group name="orangebox,hardening,fim,">
 
     <!-- Archivos de identidad y control de acceso -->
     <rule id="10030" level="13">
@@ -82,14 +91,7 @@
         <group>network,dns,</group>
     </rule>
 
-    <!--
-         Configuracion efectiva de firewall.
-
-         IMPORTANTE:
-         Se excluye /etc/sysconfig/iptables.save porque puede ser regenerado
-         automaticamente por el servicio de persistencia. Ese proceso cambia
-         timestamps y contadores de trafico sin modificar las reglas reales.
-    -->
+    <!-- Configuracion efectiva de firewall. -->
     <rule id="10037" level="13">
         <if_sid>550</if_sid>
         <field name="file">^/etc/shorewall/|^/etc/firewalld/|^/etc/ufw/|^/etc/csf/|^/etc/sysconfig/iptables$|^/etc/sysconfig/iptables-config$|^/etc/sysconfig/nftables$|^/etc/sysconfig/nftables\.conf$|^/etc/nftables\.conf$|^/etc/imunify360/|^/etc/sysconfig/imunify360/</field>
@@ -100,9 +102,9 @@
 </group>
 
 
-<!-- ============================================================
-     FIM - ELIMINACIONES
-     ============================================================ -->
+<!-- ================================================================
+     REGLAS DE DETECCION - ELIMINACIONES
+     ================================================================ -->
 
 <group name="orangebox,hardening,fim,file_deletion,">
 
@@ -155,3 +157,35 @@
     </rule>
 
 </group>
+
+
+<!-- =================================================================
+     EXCEPCIONES / WHITELIST - ESTA SECCION SIEMPRE VA AL FINAL
+     =================================================================
+
+     Actualmente no existen excepciones autorizadas para hardening.
+
+     Cuando sea necesario agregar una excepcion, debe utilizar un ID
+     entre 20000 y 29999 y referenciar explicitamente la regla OrangeBox
+     correspondiente mediante <if_sid>.
+
+     IMPORTANTE:
+         - No agregar excepciones sin validar previamente el cambio.
+         - Las excepciones deben ser lo mas especificas posible.
+         - Esta seccion debe permanecer despues de TODAS las reglas de deteccion.
+         - No crear un <group> vacio: si no hay excepciones, esta seccion
+           permanece solamente como documentacion/comentarios.
+     ================================================================= -->
+
+<!--
+    WHITELIST ACTUAL: ninguna.
+
+    Ejemplo de estructura para una futura excepcion:
+
+    <rule id="20030" level="3">
+        <if_sid>10030</if_sid>
+        <field name="file">^/ruta/validada$</field>
+        <description>EXCEPCION: Cambio autorizado previamente validado.</description>
+        <group>orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+-->
