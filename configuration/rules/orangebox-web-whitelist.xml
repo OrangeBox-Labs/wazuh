@@ -1,0 +1,38 @@
+<!--
+    OrangeBox Wazuh - Whitelist de reglas web
+    ================================================================
+
+    Este archivo contiene EXCLUSIVAMENTE excepciones conocidas y
+    autorizadas para las reglas de orangebox-web.xml.
+
+    Convencion de IDs OrangeBox:
+        10000 - 19999 = Reglas de deteccion.
+        20000 - 29999 = Excepciones / whitelists.
+
+    No agregar excepciones aqui sin validar previamente que el origen
+    corresponda a infraestructura legitima.
+-->
+
+
+<!-- ================================================================
+     REVERSE PROXY - ORIGENES LEGITIMOS
+     ================================================================ -->
+<group name="orangebox,web,authentication,whitelist,">
+
+    <!-- Reverse proxy legitimo 192.168.200.7 -->
+    <rule id="20024" level="3">
+        <if_sid>10025</if_sid>
+        <srcip>192.168.200.7</srcip>
+        <description>EXCEPCION: Rafaga HTTP 401/403 proveniente del reverse proxy legitimo 192.168.200.7.</description>
+        <group>web,authentication,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+    <!-- Reverse proxy legitimo 192.168.200.13 -->
+    <rule id="20025" level="3">
+        <if_sid>10025</if_sid>
+        <srcip>192.168.200.13</srcip>
+        <description>EXCEPCION: Rafaga HTTP 401/403 proveniente del reverse proxy legitimo 192.168.200.13.</description>
+        <group>web,authentication,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+</group>
