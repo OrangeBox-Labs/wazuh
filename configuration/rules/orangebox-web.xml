@@ -1,0 +1,89 @@
+<!-- ================================================================
+     FUERZA BRUTA / ATAQUES DE AUTENTICACION WEB
+     ================================================================ -->
+
+<group name="orangebox,web,authentication,attack,">
+
+    <!--
+        10024
+        ------------------------------------------------------------
+        Regla BASE.
+
+        Cada respuesta HTTP 401 o 403 genera este evento.
+
+        El decoder web-accesslog entrega:
+
+            data.srcip = IP origen
+            data.id    = codigo HTTP
+            data.url   = URL solicitada
+
+        Esta regla NO genera una alerta de fuerza bruta por si sola.
+        Sirve como evento padre para la regla de correlacion 10025.
+    -->
+
+    <rule id="10024" level="5">
+        <if_sid>31100</if_sid>
+        <id>^401$|^403$</id>
+        <description>HTTP 401/403 detectado contra servidor web.</description>
+        <group>web,authentication,orangebox_web,</group>
+    </rule>
+
+    <!--
+        10025
+        ------------------------------------------------------------
+        Fuerza bruta web.
+
+        La regla nativa 31101 detecta cualquier respuesta HTTP 4xx.
+
+        Aqui utilizamos 31101 como evento padre y exigimos que
+        el evento actual sea especificamente HTTP 401 o 403.
+
+        10 eventos desde la misma IP dentro de 15 segundos.
+
+        IMPORTANTE:
+        No usamos 31151 porque esa regla nativa ya representa una
+        correlacion especifica de errores 4xx y no una correlacion
+        exclusiva de 401/403.
+    -->
+
+    <rule id="10025" level="13" frequency="10" timeframe="15">
+        <if_matched_sid>31101</if_matched_sid>
+        <id>^401$|^403$</id>
+        <same_source_ip />
+        <description>ALERTA: Posible fuerza bruta web. Multiples respuestas HTTP 401/403 desde la misma IP.</description>
+        <mitre>
+            <id>T1110</id>
+        </mitre>
+        <group>web,authentication,brute_force,attack,orangebox_web,</group>
+    </rule>
+
+
+    <!--
+        20024
+        ------------------------------------------------------------
+        Excepcion para el reverse proxy 192.168.200.7.
+    -->
+
+    <rule id="20024" level="3">
+        <if_sid>10025</if_sid>
+        <srcip>192.168.200.7</srcip>
+        <description>EXCEPCION: Rafaga HTTP 401/403 proveniente del reverse proxy legitimo 192.168.200.7.</description>
+        <group>web,authentication,orangebox_exception,</group>
+    </rule>
+
+
+    <!--
+        20025
+        ------------------------------------------------------------
+        Excepcion para el reverse proxy 192.168.200.13.
+    -->
+
+    <rule id="20025" level="3">
+        <if_sid>10025</if_sid>
+        <srcip>192.168.200.13</srcip>
+        <description>EXCEPCION: Rafaga HTTP 401/403 proveniente del reverse proxy legitimo 192.168.200.13.</description>
+        <group>web,authentication,orangebox_exception,</group>
+    </rule>
+
+
+</group>
