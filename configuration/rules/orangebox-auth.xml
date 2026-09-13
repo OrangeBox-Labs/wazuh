@@ -9,17 +9,30 @@
         - Fuerza bruta SSH seguida de login exitoso.
         - Movimiento lateral dentro de redes internas.
 
-    Las excepciones / whitelists se mantienen separadas en:
-        orangebox-auth-whitelist.xml
-
     Convencion de IDs OrangeBox:
         10000 - 19999 = Reglas de deteccion.
         20000 - 29999 = Excepciones / whitelists.
+
+    IMPORTANTE:
+        Las reglas de deteccion se definen primero.
+        Las excepciones / whitelists se encuentran EXCLUSIVAMENTE
+        al FINAL de este archivo.
+
+        No mover la seccion de whitelist antes de las reglas de deteccion,
+        ya que las excepciones utilizan <if_sid> sobre reglas OrangeBox
+        definidas anteriormente.
+
+        No agregar excepciones sin validar previamente que el origen,
+        usuario o actividad sean legitimos.
 
     No sobrescribimos reglas nativas de Wazuh.
     Las reglas OrangeBox se construyen como reglas hijas cuando corresponde.
 -->
 
+
+<!-- ================================================================
+     REGLAS DE DETECCION
+     ================================================================ -->
 
 <!-- ================================================================
      SSH - AUTENTICACION EXITOSA
@@ -96,6 +109,62 @@
         <match>from 192.168.|from 10.8.</match>
         <description>ALERTA: Posible movimiento lateral. Rafaga de fallos SSH desde la red interna.</description>
         <group>authentication_failed,lateral_movement,attack,orangebox_auth,</group>
+    </rule>
+
+</group>
+
+
+<!-- =================================================================
+     EXCEPCIONES / WHITELIST - ESTA SECCION SIEMPRE VA AL FINAL
+     =================================================================
+
+     Convencion de IDs:
+         20000 - 29999 = Excepciones / whitelists.
+
+     Estas reglas NO detectan actividad maliciosa.
+     Su objetivo es evitar que actividad previamente validada y
+     operacionalmente legitima sea tratada como alerta OrangeBox.
+
+     IMPORTANTE:
+         - No agregar IPs, usuarios o servicios sin validacion previa.
+         - Las excepciones deben ser lo mas especificas posible.
+         - No utilizar una whitelist como sustituto de una regla de deteccion.
+         - Esta seccion debe permanecer despues de TODAS las reglas 10000-19999.
+     ================================================================= -->
+
+<group name="orangebox,authentication,ssh,whitelist,">
+
+    <!-- BackupPC 192.168.200.1 -->
+    <rule id="20001" level="3">
+        <if_sid>10001</if_sid>
+        <srcip>192.168.200.1</srcip>
+        <description>EXCEPCION: SSH exitoso legitimo desde BackupPC (192.168.200.1).</description>
+        <group>authentication_success,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+    <!-- BackupPC 192.168.1.31 -->
+    <rule id="20002" level="3">
+        <if_sid>10001</if_sid>
+        <srcip>192.168.1.31</srcip>
+        <description>EXCEPCION: SSH exitoso legitimo desde BackupPC (192.168.1.31).</description>
+        <group>authentication_success,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+    <!-- BackupPC 192.168.100.103 -->
+    <rule id="20003" level="3">
+        <if_sid>10001</if_sid>
+        <srcip>192.168.100.103</srcip>
+        <description>EXCEPCION: SSH exitoso legitimo desde BackupPC (192.168.100.103).</description>
+        <group>authentication_success,orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+    <!-- SFTP automatizado de certcoopeuch -->
+    <rule id="20004" level="3">
+        <if_sid>10001</if_sid>
+        <srcip>190.171.174.116</srcip>
+        <user>certcoopeuch</user>
+        <description>EXCEPCION: Acceso SFTP automatizado legitimo de certcoopeuch.</description>
+        <group>authentication_success,orangebox_exception,orangebox_whitelist,sftp,</group>
     </rule>
 
 </group>
