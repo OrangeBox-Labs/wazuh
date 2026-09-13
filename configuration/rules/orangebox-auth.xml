@@ -4,11 +4,13 @@
 
     Proposito:
         - Inicios de sesion SSH exitosos.
-        - Excepciones de accesos SSH legitimos.
         - Uso de sudo.
         - Elevacion mediante su a root.
         - Fuerza bruta SSH seguida de login exitoso.
         - Movimiento lateral dentro de redes internas.
+
+    Las excepciones / whitelists se mantienen separadas en:
+        orangebox-auth-whitelist.xml
 
     Convencion de IDs OrangeBox:
         10000 - 19999 = Reglas de deteccion.
@@ -29,37 +31,6 @@
         <if_sid>5715</if_sid>
         <description>ALERTA: Inicio de sesion SSH exitoso.</description>
         <group>authentication_success,orangebox_auth,orangebox_ssh,</group>
-    </rule>
-
-    <!-- Excepciones conocidas de BackupPC. -->
-    <rule id="20001" level="3">
-        <if_sid>10001</if_sid>
-        <srcip>192.168.200.1</srcip>
-        <description>EXCEPCION: SSH exitoso legitimo desde BackupPC (192.168.200.1).</description>
-        <group>authentication_success,orangebox_exception,</group>
-    </rule>
-
-    <rule id="20002" level="3">
-        <if_sid>10001</if_sid>
-        <srcip>192.168.1.31</srcip>
-        <description>EXCEPCION: SSH exitoso legitimo desde BackupPC (192.168.1.31).</description>
-        <group>authentication_success,orangebox_exception,</group>
-    </rule>
-
-    <rule id="20003" level="3">
-        <if_sid>10001</if_sid>
-        <srcip>192.168.100.103</srcip>
-        <description>EXCEPCION: SSH exitoso legitimo desde BackupPC (192.168.100.103).</description>
-        <group>authentication_success,orangebox_exception,</group>
-    </rule>
-
-    <!-- Excepcion SFTP automatizado de certcoopeuch. -->
-    <rule id="20004" level="3">
-        <if_sid>10001</if_sid>
-        <srcip>190.171.174.116</srcip>
-        <user>certcoopeuch</user>
-        <description>EXCEPCION: Acceso SFTP automatizado legitimo de certcoopeuch.</description>
-        <group>authentication_success,orangebox_exception,sftp,</group>
     </rule>
 
 </group>
