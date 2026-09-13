@@ -51,10 +51,15 @@
         y la IP de origen. Por eso 10001 restringe el match al formato real
         de autenticacion SSH exitosa y no a cualquier evento clasificado por
         la regla nativa 5715.
+
+        IMPORTANTE SOBRE match:
+        No usamos ^ ni $ porque full_log contiene timestamp, hostname y
+        programa antes del mensaje sshd. El match busca la secuencia real
+        dentro del log.
     -->
     <rule id="10001" level="13">
         <if_sid>5715</if_sid>
-        <match>^Accepted (publickey|password|keyboard-interactive/pam) for .* from .* port [0-9]+ ssh2$</match>
+        <match>Accepted (publickey|password|keyboard-interactive/pam) for .* from .* port [0-9]+ ssh2</match>
         <description>ALERTA: Inicio de sesion SSH exitoso.</description>
         <group>authentication_success,orangebox_auth,orangebox_ssh,</group>
     </rule>
