@@ -1,0 +1,22 @@
+<!--
+    OrangeBox Wazuh - Whitelist de hardening
+    ================================================================
+
+    Archivo reservado exclusivamente para excepciones autorizadas
+    de las reglas de orangebox-hardening.xml.
+
+    Actualmente no existen excepciones definidas.
+
+    Convencion de IDs OrangeBox:
+        10000 - 19999 = Reglas de deteccion.
+        20000 - 29999 = Excepciones / whitelists.
+-->
+
+<group name="orangebox,hardening,whitelist,">
+
+    <!--
+        Agregar aqui futuras excepciones solamente despues de validar
+        que el cambio observado sea legitimo y esperado.
+    -->
+
+</group>
