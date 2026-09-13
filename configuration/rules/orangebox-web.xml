@@ -13,6 +13,10 @@
 
          Las reglas que utilizan <if_sid> o <if_matched_sid> deben
          referenciar reglas definidas previamente cuando corresponda.
+
+         Las expresiones sobre <url> utilizan PCRE2 de forma explicita.
+         Esto es necesario porque las expresiones para rutas sensibles
+         utilizan sintaxis PCRE y no deben interpretarse como OSMatch.
 ================================================================ -->
 
 <!-- ================================================================
@@ -47,6 +51,28 @@
     </rule>
 
     <!--
+        10023
+        ------------------------------------------------------------
+        DETECCION DE URL SENSIBLE.
+
+        Separa la clasificacion de una ruta sensible de la correlacion
+        temporal. Esto permite que 10026 simplemente correlacione eventos
+        ya clasificados como sensibles.
+
+        Requiere HTTP 401/403 detectado por 10024.
+
+        PCRE2 se especifica explicitamente porque las rutas contienen
+        caracteres especiales como punto, barras y grupos de alternativas.
+    -->
+
+    <rule id="10023" level="5">
+        <if_sid>10024</if_sid>
+        <url type="pcre2">^/\.env|^/\.aws/|^/\.config/gcloud/|^/\.oci/|^/\.openai/|^/wp-config\.php|^/@fs/.*(\.env|\.aws/|\.config/gcloud/|\.oci/|\.openai/|wp-config\.php)</url>
+        <description>HTTP 401/403 contra archivo sensible o credencial potencial.</description>
+        <group>web,reconnaissance,credential_discovery,sensitive_file,orangebox_web,</group>
+    </rule>
+
+    <!--
         10025
         ------------------------------------------------------------
         FUERZA BRUTA WEB.
@@ -56,12 +82,14 @@
 
         Las rutas de reconocimiento de archivos sensibles se excluyen
         explicitamente para que no sean clasificadas como brute force.
+
+        La expresion negativa utiliza PCRE2 explicitamente.
     -->
 
     <rule id="10025" level="13" frequency="10" timeframe="15">
         <if_matched_sid>10024</if_matched_sid>
         <id>^401$|^403$</id>
-        <url negate="yes">^/\.env|^/\.aws/|^/\.config/gcloud/|^/\.oci/|^/\.openai/|^/wp-config\.php|^/@fs/.*(\.env|\.aws/|\.config/gcloud/|\.oci/|\.openai/|wp-config\.php)</url>
+        <url type="pcre2" negate="yes">^/\.env|^/\.aws/|^/\.config/gcloud/|^/\.oci/|^/\.openai/|^/wp-config\.php|^/@fs/.*(\.env|\.aws/|\.config/gcloud/|\.oci/|\.openai/|wp-config\.php)</url>
         <same_srcip />
         <description>ALERTA: Posible fuerza bruta web. Multiples respuestas HTTP 401/403 desde la misma IP.</description>
         <mitre>
@@ -75,23 +103,23 @@
         ------------------------------------------------------------
         DESCUBRIMIENTO DE ARCHIVOS SENSIBLES / CREDENCIALES.
 
-        Correlaciona DIRECTAMENTE el evento nativo 31101 (HTTP 4xx)
-        en lugar de depender de otra regla OrangeBox como estado
-        intermedio.
-
-        Esto hace la correlacion mas robusta y elimina la necesidad
-        de una regla intermedia 10023.
+        Correlaciona eventos producidos por 10023.
 
         Requiere 2 respuestas HTTP 401/403 contra rutas sensibles,
         desde la misma IP, dentro de 30 segundos.
 
-        Nivel 15: Active Response puede ejecutar firewall-drop.
+        El uso de if_matched_sid sobre 10023 fue validado con
+        wazuh-logtest en Wazuh 4.14.7.
+
+        Nivel 15:
+            - alerta de alta severidad
+            - contiene srcip del atacante
+            - dispara Active Response firewall-drop
+            - timeout configurado: 86400 segundos (24 horas)
     -->
 
     <rule id="10026" level="15" frequency="2" timeframe="30">
-        <if_matched_sid>31101</if_matched_sid>
-        <id>^401$|^403$</id>
-        <url>^/\.env|^/\.aws/|^/\.config/gcloud/|^/\.oci/|^/\.openai/|^/wp-config\.php|^/@fs/.*(\.env|\.aws/|\.config/gcloud/|\.oci/|\.openai/|wp-config\.php)</url>
+        <if_matched_sid>10023</if_matched_sid>
         <same_srcip />
         <description>ALERTA CRITICA: Posible reconocimiento automatizado de archivos sensibles o credenciales web. Multiples intentos desde la misma IP.</description>
         <mitre>
