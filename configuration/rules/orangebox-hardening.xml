@@ -99,6 +99,24 @@
         <group>firewall,network,</group>
     </rule>
 
+    <!--
+        Integridad de comandos autorizados para SUDO -> ROOT.
+
+        Estos archivos forman parte de la whitelist de orangebox-auth.xml.
+        Si un atacante modifica uno de ellos, podria transformar un comando
+        aparentemente permitido en una herramienta de escalamiento.
+
+        La regla es deliberadamente de nivel 15 e incluye
+        privilege_escalation_root para que la integracion de correo la trate
+        como alerta inmediata.
+    -->
+    <rule id="10046" level="15">
+        <if_sid>550</if_sid>
+        <field name="file">^/opt/zimbra/libexec/zmstat-fd$|^/opt/zimbra/common/sbin/postfix$|^/opt/zimbra/common/sbin/postalias$|^/opt/zimbra/common/sbin/qshape\.pl$|^/opt/zimbra/common/sbin/postconf$|^/opt/zimbra/common/sbin/postsuper$|^/opt/zimbra/common/sbin/postcat$|^/opt/zimbra/libexec/zmqstat$|^/opt/zimbra/libexec/zmmtastatus$|^/opt/zimbra/libexec/zmmailboxdmgr$</field>
+        <description>ALERTA CRITICA: Comando autorizado para SUDO -> ROOT fue modificado.</description>
+        <group>sudo,privilege_escalation,privilege_escalation_root,integrity,orangebox_sudo_command_integrity,</group>
+    </rule>
+
 </group>
 
 
@@ -154,6 +172,14 @@
         <field name="file">^/etc/cron\.d/|^/etc/crontab$|^/etc/anacrontab$</field>
         <description>ALERTA CRITICA: Configuracion de CRON o ANACRON eliminada.</description>
         <group>cron,persistence,</group>
+    </rule>
+
+    <!-- Eliminacion de un comando autorizado para SUDO -> ROOT. -->
+    <rule id="10047" level="15">
+        <if_sid>553</if_sid>
+        <field name="file">^/opt/zimbra/libexec/zmstat-fd$|^/opt/zimbra/common/sbin/postfix$|^/opt/zimbra/common/sbin/postalias$|^/opt/zimbra/common/sbin/qshape\.pl$|^/opt/zimbra/common/sbin/postconf$|^/opt/zimbra/common/sbin/postsuper$|^/opt/zimbra/common/sbin/postcat$|^/opt/zimbra/libexec/zmqstat$|^/opt/zimbra/libexec/zmmtastatus$|^/opt/zimbra/libexec/zmmailboxdmgr$</field>
+        <description>ALERTA CRITICA: Comando autorizado para SUDO -> ROOT fue eliminado.</description>
+        <group>sudo,privilege_escalation,privilege_escalation_root,integrity,orangebox_sudo_command_integrity,</group>
     </rule>
 
 </group>
