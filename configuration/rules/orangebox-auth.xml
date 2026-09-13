@@ -47,19 +47,14 @@
         Ese mensaje NO confirma por si solo que una sesion SSH haya sido
         establecida y puede incluso aparecer mas de una vez.
 
-        El login SSH realmente exitoso contiene la IP de origen (srcip),
-        por ejemplo:
-
-            Accepted publickey for usuario from 10.8.0.6 ...
-
-        Por eso 10001 exige que el evento tenga srcip. De esta forma la
-        alerta OrangeBox solamente se genera para el evento de autenticacion
-        que identifica al cliente origen y no para los mensajes auxiliares
-        relacionados con authorized_keys.
+        El login SSH realmente exitoso contiene la frase "for ... from ..."
+        y la IP de origen. Por eso 10001 restringe el match al formato real
+        de autenticacion SSH exitosa y no a cualquier evento clasificado por
+        la regla nativa 5715.
     -->
     <rule id="10001" level="13">
         <if_sid>5715</if_sid>
-        <field name="srcip" type="pcre2">.+</field>
+        <match>^Accepted (publickey|password|keyboard-interactive/pam) for .* from .* port [0-9]+ ssh2$</match>
         <description>ALERTA: Inicio de sesion SSH exitoso.</description>
         <group>authentication_success,orangebox_auth,orangebox_ssh,</group>
     </rule>
