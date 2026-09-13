@@ -1,0 +1,22 @@
+<!--
+    OrangeBox Wazuh - Whitelist de ejecutables temporales
+    ================================================================
+
+    Archivo reservado exclusivamente para excepciones autorizadas
+    de las reglas de orangebox-temporary-executable.xml.
+
+    Actualmente no existen excepciones definidas.
+
+    Convencion de IDs OrangeBox:
+        10000 - 19999 = Reglas de deteccion.
+        20000 - 29999 = Excepciones / whitelists.
+-->
+
+<group name="orangebox,temporary,executable,whitelist,">
+
+    <!--
+        Agregar aqui futuras excepciones solamente despues de validar
+        el binario, su origen y su necesidad operacional.
+    -->
+
+</group>
