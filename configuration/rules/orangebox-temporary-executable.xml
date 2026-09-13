@@ -1,0 +1,152 @@
+<!--
+    ORANGEBOX - Detección de archivos ejecutables en directorios temporales
+    =======================================================================
+
+    Objetivo
+    --------
+    Detectar archivos ejecutables en:
+
+        /tmp/
+        /var/tmp/
+        /dev/shm/
+
+    Se consideran relevantes:
+        - Archivos creados ya con permiso de ejecución.
+        - Archivos existentes a los que se agrega ejecución.
+
+    La detección es independiente de:
+        - usuario
+        - grupo
+        - nombre
+        - extensión
+        - contenido
+
+    Se utiliza exclusivamente Wazuh FIM nativo.
+
+    Eventos FIM:
+        554 = File added
+        550 = File modified
+-->
+
+
+<group name="orangebox_temporary_executable">
+
+
+    <!--
+        ================================================================
+        10410 - ARCHIVO CREADO YA EJECUTABLE
+        ================================================================
+
+        Detecta archivos que aparecen en el sistema con algún permiso
+        de ejecución desde el momento en que FIM los registra.
+
+        Ejemplo:
+
+            install -m 755 /dev/null /dev/shm/test
+
+        Genera:
+
+            554 -> File added
+            10410 -> nuestra alerta
+
+        El patrón de permisos es el que ya probamos exitosamente.
+    -->
+
+    <rule id="10410" level="15">
+
+        <!-- Archivo creado -->
+        <if_sid>554</if_sid>
+
+        <!-- Directorios temporales -->
+        <field name="file" type="pcre2">^/tmp/|^/var/tmp/|^/dev/shm/</field>
+
+        <!-- Permiso de ejecución presente -->
+        <field name="perm" type="pcre2">\w\wx</field>
+
+        <description>
+            ORANGEBOX: Executable file created in temporary directory.
+        </description>
+
+        <mitre>
+            <id>T1105</id>
+        </mitre>
+
+    </rule>
+
+
+    <!--
+        ================================================================
+        10432 - ARCHIVO EXISTENTE AL QUE SE AGREGA EJECUCIÓN
+        ================================================================
+
+        Detecta cambios de permisos sobre archivos existentes.
+
+        Ejemplo:
+
+            chmod 644 archivo
+            chmod 755 archivo
+
+        FIM genera:
+
+            550
+            changed_fields = permission
+
+        Esta regla solamente se activa cuando el nuevo permiso contiene
+        ejecución.
+
+        Posiciones de ejecución:
+
+            rwx------   -> owner
+            ---rwx---   -> group
+            ------rwx   -> other
+
+        También contempla:
+
+            s = ejecución + setuid/setgid
+            t = ejecución + sticky
+
+        No contempla:
+
+            S = setuid/setgid SIN ejecución
+            T = sticky SIN ejecución
+    -->
+
+    <rule id="10432" level="15">
+
+        <!-- Archivo existente modificado -->
+        <if_sid>550</if_sid>
+
+        <!-- Directorios temporales -->
+        <field name="file" type="pcre2">^/tmp/|^/var/tmp/|^/dev/shm/</field>
+
+        <!-- El cambio debe ser exclusivamente de permisos -->
+        <field name="changed_fields">^permission$</field>
+
+        <!--
+            POSIX permissions:
+
+                rwx rwx rwx
+                --- --- ---
+                own grp oth
+
+            x = ejecución
+            s = ejecución + setuid/setgid
+            t = ejecución + sticky
+
+            El lookahead (?=.*[xst]) exige que exista al menos
+            un carácter x, s o t en el nuevo permiso.
+        -->
+        <field name="perm" type="pcre2">^(?=.*[xst])[r-][w-][xst-][r-][w-][xst-][r-][w-][xst-]$</field>
+
+        <description>
+            ORANGEBOX: Execute permission added to file in temporary directory.
+        </description>
+
+        <mitre>
+            <id>T1222.002</id>
+        </mitre>
+
+    </rule>
+
+
+</group>
