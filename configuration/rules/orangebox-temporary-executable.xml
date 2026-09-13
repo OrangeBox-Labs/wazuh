@@ -26,11 +26,22 @@
     Eventos FIM:
         554 = File added
         550 = File modified
+
+    Convencion de IDs OrangeBox:
+        10000 - 19999 = Reglas de deteccion.
+        20000 - 29999 = Excepciones / whitelists.
+
+    IMPORTANTE:
+        Las reglas de deteccion se definen primero.
+        Las excepciones / whitelists se encuentran EXCLUSIVAMENTE
+        al FINAL de este archivo.
 -->
 
+<!-- ================================================================
+     REGLAS DE DETECCION
+     ================================================================ -->
 
 <group name="orangebox_temporary_executable">
-
 
     <!--
         ================================================================
@@ -53,26 +64,16 @@
     -->
 
     <rule id="10410" level="15">
-
-        <!-- Archivo creado -->
         <if_sid>554</if_sid>
-
-        <!-- Directorios temporales -->
         <field name="file" type="pcre2">^/tmp/|^/var/tmp/|^/dev/shm/</field>
-
-        <!-- Permiso de ejecución presente -->
         <field name="perm" type="pcre2">\w\wx</field>
-
         <description>
             ORANGEBOX: Executable file created in temporary directory.
         </description>
-
         <mitre>
             <id>T1105</id>
         </mitre>
-
     </rule>
-
 
     <!--
         ================================================================
@@ -112,41 +113,49 @@
     -->
 
     <rule id="10432" level="15">
-
-        <!-- Archivo existente modificado -->
         <if_sid>550</if_sid>
-
-        <!-- Directorios temporales -->
         <field name="file" type="pcre2">^/tmp/|^/var/tmp/|^/dev/shm/</field>
-
-        <!-- El cambio debe ser exclusivamente de permisos -->
         <field name="changed_fields">^permission$</field>
-
-        <!--
-            POSIX permissions:
-
-                rwx rwx rwx
-                --- --- ---
-                own grp oth
-
-            x = ejecución
-            s = ejecución + setuid/setgid
-            t = ejecución + sticky
-
-            El lookahead (?=.*[xst]) exige que exista al menos
-            un carácter x, s o t en el nuevo permiso.
-        -->
         <field name="perm" type="pcre2">^(?=.*[xst])[r-][w-][xst-][r-][w-][xst-][r-][w-][xst-]$</field>
-
         <description>
             ORANGEBOX: Execute permission added to file in temporary directory.
         </description>
-
         <mitre>
             <id>T1222.002</id>
         </mitre>
-
     </rule>
 
-
 </group>
+
+
+<!-- =================================================================
+     EXCEPCIONES / WHITELIST - ESTA SECCION SIEMPRE VA AL FINAL
+     =================================================================
+
+     Actualmente no existen excepciones autorizadas.
+
+     Cuando sea necesario agregar una excepcion, debe utilizar un ID
+     entre 20000 y 29999 y referenciar explicitamente la regla OrangeBox
+     correspondiente mediante <if_sid>.
+
+     IMPORTANTE:
+         - No agregar excepciones sin validar previamente el binario,
+           su origen y su necesidad operacional.
+         - Las excepciones deben ser lo mas especificas posible.
+         - Esta seccion debe permanecer despues de TODAS las reglas de deteccion.
+         - No crear un <group> vacio: si no hay excepciones, esta seccion
+           permanece solamente como documentacion/comentarios.
+     ================================================================= -->
+
+<!--
+    WHITELIST ACTUAL: ninguna.
+
+    Ejemplo de estructura para una futura excepcion:
+
+    <rule id="20040" level="3">
+        <if_sid>10410</if_sid>
+        <field name="file">^/ruta/validada$</field>
+        <description>EXCEPCION: Ejecutable temporal autorizado y validado.</description>
+        <group>orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+-->
