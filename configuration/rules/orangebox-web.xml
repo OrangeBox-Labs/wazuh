@@ -11,9 +11,8 @@
          Las excepciones / whitelists se encuentran EXCLUSIVAMENTE
          al FINAL de este archivo.
 
-         10024 es una regla BASE de contexto y usa noalert="1" para
-         permitir que el mismo evento continue evaluandose por las
-         reglas de correlacion 10025 y 10026.
+         Las reglas que utilizan <if_sid> o <if_matched_sid> deben
+         referenciar reglas definidas previamente cuando corresponda.
 ================================================================ -->
 
 <!-- ================================================================
@@ -25,21 +24,22 @@
     <!--
         10024
         ------------------------------------------------------------
-        Regla BASE de contexto.
+        Regla BASE.
 
-        Cada respuesta HTTP 401 o 403 pasa por esta regla.
-
-        noalert="1" es intencional: el evento debe continuar siendo
-        evaluado por las reglas de correlacion que vienen despues.
+        Cada respuesta HTTP 401 o 403 genera este evento.
 
         En esta instalacion:
             31100 = regla base del web-accesslog
             31101 = Web server 400 error code (HTTP 4xx)
 
-        31101 es el SID que recibe el evento antes de OrangeBox.
+        31101 es el SID que recibe el evento antes de nuestra regla
+        OrangeBox.
+
+        Esta regla NO usa noalert. Necesitamos que 10024 sea un alerta
+        real porque 10025 utiliza if_matched_sid sobre ella.
     -->
 
-    <rule id="10024" level="5" noalert="1">
+    <rule id="10024" level="5">
         <if_sid>31101</if_sid>
         <id>^401$|^403$</id>
         <description>HTTP 401/403 detectado contra servidor web.</description>
@@ -75,18 +75,21 @@
         ------------------------------------------------------------
         DESCUBRIMIENTO DE ARCHIVOS SENSIBLES / CREDENCIALES.
 
-        Correlaciona directamente eventos 10024 que ademas coinciden
-        con una ruta sensible.
+        Correlaciona DIRECTAMENTE el evento nativo 31101 (HTTP 4xx)
+        en lugar de depender de otra regla OrangeBox como estado
+        intermedio.
 
-        Requiere 2 coincidencias desde la misma IP dentro de 30 segundos.
-        El filtro sensible se aplica aqui, por lo que no necesitamos una
-        regla intermedia 10023.
+        Esto hace la correlacion mas robusta y elimina la necesidad
+        de una regla intermedia 10023.
+
+        Requiere 2 respuestas HTTP 401/403 contra rutas sensibles,
+        desde la misma IP, dentro de 30 segundos.
 
         Nivel 15: Active Response puede ejecutar firewall-drop.
     -->
 
     <rule id="10026" level="15" frequency="2" timeframe="30">
-        <if_matched_sid>10024</if_matched_sid>
+        <if_matched_sid>31101</if_matched_sid>
         <id>^401$|^403$</id>
         <url>^/\.env|^/\.aws/|^/\.config/gcloud/|^/\.oci/|^/\.openai/|^/wp-config\.php|^/@fs/.*(\.env|\.aws/|\.config/gcloud/|\.oci/|\.openai/|wp-config\.php)</url>
         <same_srcip />
@@ -99,7 +102,6 @@
     </rule>
 
 </group>
-
 
 <!-- =================================================================
      EXCEPCIONES / WHITELIST - ESTA SECCION SIEMPRE VA AL FINAL
