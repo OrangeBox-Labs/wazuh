@@ -684,48 +684,20 @@ else:
         # ----------------------------------------------------
         # SOMOS EL PRIMER EVENTO.
         #
-        # IMPORTANTE:
-        #
-        # NO debemos hacer sleep() directamente en este
-        # proceso porque Wazuh puede serializar la ejecucion
-        # de la integracion.
-        #
         # Creamos un proceso hijo que esperara la ventana
         # de agrupacion mientras este proceso padre termina.
-        #
-        # De esta forma:
-        #
-        #   evento 1 -> crea buffer -> proceso hijo espera
-        #   evento 2 -> agrega al buffer
-        #   evento 3 -> agrega al buffer
-        #   evento 4 -> agrega al buffer
-        #   ...
-        #
-        # Al cumplirse WINDOW_SECONDS, el hijo envia el correo.
         # ----------------------------------------------------
 
         pid = os.fork()
 
         if pid > 0:
-
-            # ------------------------------------------------
-            # PROCESO PADRE
-            #
-            # Termina inmediatamente para no bloquear nuevas
-            # ejecuciones de la integracion Wazuh.
-            # ------------------------------------------------
-
             sys.exit(0)
 
         # ----------------------------------------------------
         # PROCESO HIJO
         # ----------------------------------------------------
-        #
-        # Nos independizamos de la sesion del proceso padre.
-        # ----------------------------------------------------
 
         os.setsid()
-
         time.sleep(WINDOW_SECONDS)
 
         # ----------------------------------------------------
@@ -766,7 +738,6 @@ else:
 
         try:
             os.remove(buffer_path)
-
         except FileNotFoundError:
             pass
 
@@ -1705,7 +1676,7 @@ msg["Subject"] = (
 )
 
 msg["From"] = (
-    "Wazuh SOC <soporte@orangebox.cl>"
+    "Wazuh SOC <wazuh@orangebox.cl>"
 )
 
 msg["To"] = recipient
