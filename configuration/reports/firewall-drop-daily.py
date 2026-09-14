@@ -3,31 +3,37 @@
 """
 OrangeBox Wazuh - Reporte diario de firewall-drop
 
-Lee /var/ossec/logs/active-responses.log y genera un resumen HTML
-agrupado por agente, regla/motivo y duracion.
+Lee /var/ossec/logs/alerts/alerts.json y reconstruye las ejecuciones
+reales de Active Response firewall-drop a partir de las alertas 651.
 
-No envia correos por si mismo en esta primera version: la funcion
-principal genera el HTML y puede ser integrada posteriormente con
-el mecanismo de correo definido para los reportes diarios.
+No envia correos por si mismo: genera el HTML por stdout para ser
+integrado posteriormente con el mecanismo de reportes diarios.
 
-El reporte NO lista IPs individualmente. Cuenta IPs unicas por:
-    agente + rule_id + duracion
-
-Los eventos sin una srcip valida no se consideran bloqueos efectivos.
+IMPORTANTE:
+- No cuenta las alertas 10026 directamente como bloqueos.
+- Solo considera alertas 651 cuyo full_log contiene una ejecucion
+  firewall-drop con command=add.
+- Los eventos sin una srcip valida no se consideran bloqueos efectivos.
+- Una misma IP puede generar muchas ejecuciones de firewall-drop mientras
+  una alerta de correlacion continua disparandose. Para el resumen se
+  deduplica por agente + regla + srcip.
+- Las IPs individuales no se muestran en el HTML.
 """
 
+import argparse
 import html
 import ipaddress
 import json
 import re
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
-ACTIVE_RESPONSE_LOG = "/var/ossec/logs/active-responses.log"
+ALERTS_FILE = "/var/ossec/logs/alerts/alerts.json"
 
-# Coincide con las lineas que contienen el JSON de Active Response.
-JSON_LINE_RE = re.compile(
-    r"^([^ ]+ [^ ]+) active-response/bin/firewall-drop: (\{.*\})$"
+# El full_log de una alerta 651 contiene una linea como:
+#   2026/... active-response/bin/firewall-drop: {JSON}
+FIREWALL_DROP_RE = re.compile(
+    r"active-response/bin/firewall-drop:\s*(\{.*\})$"
 )
 
 
@@ -43,47 +49,106 @@ def valid_ip(value):
         return False
 
 
-def parse_log(path=ACTIVE_RESPONSE_LOG):
-    """Devuelve eventos firewall-drop con srcip valida."""
+def parse_timestamp(value):
+    """Convierte timestamps Wazuh ISO-8601 a datetime con timezone."""
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def extract_firewall_drop_payload(full_log):
+    """Extrae el JSON interno de firewall-drop desde alert.full_log."""
+    if not isinstance(full_log, str):
+        return None
+
+    match = FIREWALL_DROP_RE.search(full_log.strip())
+    if not match:
+        return None
+
+    try:
+        return json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+
+
+def parse_alerts(path=ALERTS_FILE, report_date=None):
+    """
+    Lee alerts.json y devuelve ejecuciones efectivas de firewall-drop.
+
+    report_date: fecha local Wazuh en formato YYYY-MM-DD. Si es None,
+    procesa todo el archivo.
+    """
     events = []
+
+    start = end = None
+    if report_date:
+        try:
+            day = datetime.strptime(report_date, "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise SystemExit(
+                f"Fecha invalida: {report_date}. Use YYYY-MM-DD."
+            ) from exc
+        start = day
+        end = day + timedelta(days=1)
 
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
-                match = JSON_LINE_RE.match(line.rstrip("\n"))
-                if not match:
+                line = line.strip()
+                if not line:
                     continue
 
-                log_timestamp, payload_text = match.groups()
-
                 try:
-                    payload = json.loads(payload_text)
+                    outer = json.loads(line)
                 except json.JSONDecodeError:
                     continue
 
-                if payload.get("command") != "add":
+                rule = outer.get("rule", {}) or {}
+                if str(rule.get("id")) != "651":
                     continue
 
-                alert = payload.get("parameters", {}).get("alert", {})
-                data = alert.get("data", {}) or {}
-                rule = alert.get("rule", {}) or {}
+                outer_timestamp = parse_timestamp(outer.get("timestamp", ""))
+                if report_date and outer_timestamp:
+                    if not (start <= outer_timestamp.date() < end):
+                        continue
+                elif report_date and not outer_timestamp:
+                    continue
+
+                inner = extract_firewall_drop_payload(outer.get("full_log", ""))
+                if not inner:
+                    continue
+
+                if inner.get("program") != "active-response/bin/firewall-drop":
+                    continue
+
+                if inner.get("command") != "add":
+                    continue
+
+                alert = inner.get("parameters", {}).get("alert", {}) or {}
+                inner_rule = alert.get("rule", {}) or {}
                 agent = alert.get("agent", {}) or {}
+                data = alert.get("data", {}) or {}
 
                 srcip = data.get("srcip") or alert.get("srcip")
-
                 if not valid_ip(srcip):
-                    # firewall-drop no pudo recibir una IP valida.
+                    # firewall-drop no recibio una IP valida; no es un
+                    # bloqueo efectivo para nuestro reporte.
                     continue
 
                 events.append({
-                    "log_timestamp": log_timestamp,
+                    "timestamp": outer.get("timestamp", ""),
                     "alert_timestamp": alert.get("timestamp", ""),
-                    "agent_id": agent.get("id", "000"),
+                    "agent_id": str(agent.get("id", "000")),
                     "agent_name": agent.get("name", "unknown"),
-                    "rule_id": str(rule.get("id", "unknown")),
-                    "description": rule.get("description", "Sin descripcion"),
-                    "srcip": srcip,
-                    "alert_id": alert.get("id", ""),
+                    "rule_id": str(inner_rule.get("id", "unknown")),
+                    "description": inner_rule.get(
+                        "description", "Sin descripcion"
+                    ),
+                    "srcip": str(srcip),
+                    "alert_id": str(alert.get("id", "")),
                 })
 
     except FileNotFoundError:
@@ -103,7 +168,13 @@ def parse_duration_from_rule(rule_id):
 
 
 def group_events(events):
-    """Agrupa por agente + regla + duracion y cuenta IPs unicas."""
+    """
+    Agrupa bloqueos por agente + regla + duracion y cuenta IPs unicas.
+
+    La IP es el identificador de un bloqueo efectivo dentro de un grupo.
+    Las multiples ejecuciones de firewall-drop para la misma IP no se
+    contabilizan nuevamente.
+    """
     grouped = defaultdict(set)
 
     for event in events:
@@ -124,12 +195,12 @@ def group_events(events):
 def generate_html(events, report_date=None):
     """Genera el reporte HTML con el estilo visual de OrangeBox."""
     if report_date is None:
-        report_date = datetime.now().strftime("%d/%m/%Y")
+        report_date = datetime.now().strftime("%Y-%m-%d")
 
     grouped = group_events(events)
 
     agents = defaultdict(list)
-    total_ips = set()
+    total_ips_global = set()
     total_blocks = 0
     rules_summary = defaultdict(set)
 
@@ -140,10 +211,9 @@ def generate_html(events, report_date=None):
             "description": description,
             "duration": duration,
             "ip_count": len(ips),
-            "ips": ips,
         }
         agents[(agent_id, agent_name)].append(item)
-        total_ips.update((agent_id, ip) for ip in ips)
+        total_ips_global.update(ips)
         total_blocks += len(ips)
         rules_summary[(rule_id, description)].update(ips)
 
@@ -179,17 +249,23 @@ def generate_html(events, report_date=None):
         "<div class='header'>",
         "<div class='brand'>OrangeBox Security · Wazuh</div>",
         "<h1>Reporte diario — Firewall Drop</h1>",
-        f"<div class='date'>Período: {esc(report_date)}</div>",
+        f"<div class='date'>Fecha: {esc(report_date)}</div>",
         "</div><div class='content'>",
     ]
 
     if not agents:
-        parts.append("<p>No se registraron bloqueos firewall-drop con IP válida durante el período.</p>")
+        parts.append(
+            "<p>No se registraron bloqueos firewall-drop con IP válida durante el período.</p>"
+        )
     else:
-        for (agent_id, agent_name), items in sorted(agents.items(), key=lambda x: x[0][1]):
+        for (agent_id, agent_name), items in sorted(
+            agents.items(), key=lambda x: x[0][1]
+        ):
             parts.extend([
                 "<div class='agent'>",
-                f"<div class='agent-title'>{esc(agent_name)} <span style='font-weight:normal;color:#607d8b'>(ID {esc(agent_id)})</span></div>",
+                f"<div class='agent-title'>{esc(agent_name)} "
+                f"<span style='font-weight:normal;color:#607d8b'>"
+                f"(ID {esc(agent_id)})</span></div>",
                 "<table><thead><tr>",
                 "<th>Motivo</th><th>Regla</th><th>Duración</th><th>IPs únicas</th>",
                 "</tr></thead><tbody>",
@@ -211,10 +287,15 @@ def generate_html(events, report_date=None):
         "<div class='summary'>",
         "<div class='summary-title'>Resumen del período</div>",
         "<div class='summary-body'>",
-        f"<div class='metric'><span class='metric-value'>{len(agents)}</span><span class='metric-label'>Agentes con bloqueos</span></div>",
-        f"<div class='metric'><span class='metric-value'>{total_blocks}</span><span class='metric-label'>IPs bloqueadas (por agente/regla)</span></div>",
-        f"<div class='metric'><span class='metric-value'>{len(total_ips)}</span><span class='metric-label'>IPs únicas globales</span></div>",
-        "<table style='margin-top:15px'><thead><tr><th>Regla</th><th>Motivo</th><th>IPs únicas</th></tr></thead><tbody>",
+        f"<div class='metric'><span class='metric-value'>{len(agents)}</span>"
+        "<span class='metric-label'>Agentes con bloqueos</span></div>",
+        f"<div class='metric'><span class='metric-value'>{total_blocks}</span>"
+        "<span class='metric-label'>Bloqueos efectivos</span></div>",
+        f"<div class='metric'><span class='metric-value'>{len(total_ips_global)}</span>"
+        "<span class='metric-label'>IPs únicas globales</span></div>",
+        "<table style='margin-top:15px'><thead><tr>"
+        "<th>Regla</th><th>Motivo</th><th>IPs únicas</th>"
+        "</tr></thead><tbody>",
     ])
 
     for (rule_id, description), ips in sorted(rules_summary.items()):
@@ -238,8 +319,22 @@ def generate_html(events, report_date=None):
 
 
 def main():
-    events = parse_log()
-    print(generate_html(events))
+    parser = argparse.ArgumentParser(
+        description="Genera reporte HTML de firewall-drop desde Wazuh alerts.json"
+    )
+    parser.add_argument(
+        "--file",
+        default=ALERTS_FILE,
+        help=f"Archivo alerts.json (default: {ALERTS_FILE})",
+    )
+    parser.add_argument(
+        "--date",
+        help="Procesar solo una fecha YYYY-MM-DD; por defecto procesa todo el archivo",
+    )
+    args = parser.parse_args()
+
+    events = parse_alerts(args.file, args.date)
+    print(generate_html(events, args.date))
 
 
 if __name__ == "__main__":
