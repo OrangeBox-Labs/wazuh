@@ -3,11 +3,17 @@
 """
 OrangeBox Wazuh - Reporte diario de firewall-drop
 
-Lee /var/ossec/logs/alerts/alerts.json y reconstruye las ejecuciones
-reales de Active Response firewall-drop a partir de las alertas 651.
+Lee alerts.json, reconstruye las ejecuciones reales de Active Response
+firewall-drop y genera/envia el reporte HTML diario mediante el Postfix
+local de la maquina.
 
-No envia correos por si mismo: genera el HTML por stdout para ser
-integrado posteriormente con el mecanismo de reportes diarios.
+Uso manual sin enviar:
+  firewall-drop-daily.py --date 2026-09-14
+
+Uso manual enviando por Postfix local:
+  firewall-drop-daily.py --date 2026-09-14 --send
+
+Sin --date, --send usa automaticamente el dia anterior.
 """
 
 import argparse
@@ -15,10 +21,18 @@ import html
 import ipaddress
 import json
 import re
+import smtplib
 from collections import defaultdict
 from datetime import datetime, timedelta
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 ALERTS_FILE = "/var/ossec/logs/alerts/alerts.json"
+DEFAULT_TO = "soporte@orangebox.cl"
+DEFAULT_FROM = "wazuh@orangebox.cl"
+SMTP_HOST = "localhost"
+SMTP_PORT = 25
+ARCHIVE_DIR = "/var/ossec/reports/archive"
 FIREWALL_DROP_RE = re.compile(r"active-response/bin/firewall-drop:\s*(\{.*\})$")
 
 
@@ -202,14 +216,14 @@ def generate_html(events, report_date=None):
     ]
 
     if not agents:
-        parts.append("<p>No se registraron bloqueos firewall-drop con IP válida durante el período.</p>")
+        parts.append("<p>No se registraron bloqueos firewall-drop con IP valida durante el periodo.</p>")
     else:
         for (agent_id, agent_name), items in sorted(agents.items(), key=lambda x: x[0][1]):
             parts.extend([
                 "<div class='agent'>",
                 f"<div class='agent-title'>{esc(agent_name)} <span style='font-weight:normal;color:#607d8b'>(ID {esc(agent_id)})</span></div>",
                 "<table><thead><tr>",
-                "<th>Motivo</th><th>Regla</th><th>Duración</th><th>IPs únicas</th>",
+                "<th>Motivo</th><th>Regla</th><th>Duracion</th><th>IPs unicas</th>",
                 "</tr></thead><tbody>",
             ])
             for item in items:
@@ -225,12 +239,12 @@ def generate_html(events, report_date=None):
 
     parts.extend([
         "<div class='summary'>",
-        "<div class='summary-title'>Resumen del período</div>",
+        "<div class='summary-title'>Resumen del periodo</div>",
         "<div class='summary-body'>",
         f"<div class='metric'><span class='metric-value'>{len(agents)}</span><span class='metric-label'>Agentes con bloqueos</span></div>",
         f"<div class='metric'><span class='metric-value'>{total_blocks}</span><span class='metric-label'>Bloqueos efectivos</span></div>",
-        f"<div class='metric'><span class='metric-value'>{len(total_ips_global)}</span><span class='metric-label'>IPs únicas globales</span></div>",
-        "<table style='margin-top:15px'><thead><tr><th>Regla</th><th>Motivo</th><th>IPs únicas</th></tr></thead><tbody>",
+        f"<div class='metric'><span class='metric-value'>{len(total_ips_global)}</span><span class='metric-label'>IPs unicas globales</span></div>",
+        "<table style='margin-top:15px'><thead><tr><th>Regla</th><th>Motivo</th><th>IPs unicas</th></tr></thead><tbody>",
     ])
 
     for (rule_id, description), ips in sorted(rules_summary.items()):
@@ -246,19 +260,61 @@ def generate_html(events, report_date=None):
         "</tbody></table>",
         "</div></div>",
         "</div>",
-        "<div class='footer'>OrangeBox IT Services · Reporte generado automáticamente desde Wazuh Active Response.</div>",
+        "<div class='footer'>OrangeBox IT Services · Reporte generado automaticamente desde Wazuh Active Response.</div>",
         "</div></body></html>",
     ])
     return "".join(parts)
 
 
+def send_email(subject, html_body, recipient=DEFAULT_TO, sender=DEFAULT_FROM):
+    """Entrega el reporte al Postfix local mediante SMTP."""
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = f"Wazuh SOC <{sender}>"
+    msg["To"] = recipient
+    msg.attach(MIMEText("Reporte diario de firewall-drop de Wazuh. Ver contenido HTML.", "plain", "utf-8"))
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
+        smtp.sendmail(sender, [recipient], msg.as_string())
+
+
+def archive_html(html_body, report_date):
+    """Guarda una copia del reporte para auditoria local."""
+    import os
+    os.makedirs(ARCHIVE_DIR, mode=0o750, exist_ok=True)
+    path = f"{ARCHIVE_DIR}/firewall-drop-{report_date}.html"
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(html_body)
+    return path
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Genera reporte HTML de firewall-drop desde Wazuh alerts.json")
+    parser = argparse.ArgumentParser(description="Genera y opcionalmente envia reporte diario de firewall-drop")
     parser.add_argument("--file", default=ALERTS_FILE, help=f"Archivo alerts.json (default: {ALERTS_FILE})")
-    parser.add_argument("--date", help="Procesar solo una fecha YYYY-MM-DD; por defecto procesa todo el archivo")
+    parser.add_argument("--date", help="Procesar una fecha YYYY-MM-DD; con --send por defecto usa ayer")
+    parser.add_argument("--send", action="store_true", help="Enviar el reporte mediante Postfix local")
+    parser.add_argument("--no-archive", action="store_true", help="No guardar copia HTML local")
     args = parser.parse_args()
-    events = parse_alerts(args.file, args.date)
-    print(generate_html(events, args.date))
+
+    report_date = args.date
+    if args.send and not report_date:
+        report_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    events = parse_alerts(args.file, report_date)
+    html_body = generate_html(events, report_date)
+
+    if not args.no_archive:
+        archive_html(html_body, report_date or datetime.now().strftime("%Y-%m-%d"))
+
+    if args.send:
+        subject_date = report_date or datetime.now().strftime("%Y-%m-%d")
+        send_email(
+            f"[OrangeBox SOC] Reporte diario Firewall Drop - {subject_date}",
+            html_body,
+        )
+    else:
+        print(html_body)
 
 
 if __name__ == "__main__":
