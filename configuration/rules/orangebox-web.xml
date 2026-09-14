@@ -101,10 +101,16 @@
         Como 10023 acepta cualquier HTTP 4xx, se incluyen respuestas
         401, 403 y 404.
 
-        Nivel 15: Active Response ejecuta firewall-drop durante 24 horas.
+        Nivel 11: se conserva la deteccion y el Active Response
+        firewall-drop durante 24 horas, pero queda por debajo del
+        umbral 12 utilizado por la integracion de correo OrangeBox.
+
+        IMPORTANTE:
+        El Active Response se mantiene asociado explicitamente a la
+        regla 10026, por lo que bajar el nivel NO elimina el bloqueo.
     -->
 
-    <rule id="10026" level="15" frequency="2" timeframe="30">
+    <rule id="10026" level="11" frequency="2" timeframe="30">
         <if_matched_sid>10023</if_matched_sid>
         <same_srcip />
         <description>ALERTA CRITICA: Posible reconocimiento automatizado de archivos sensibles o credenciales web. Multiples intentos desde la misma IP.</description>
