@@ -53,7 +53,11 @@ def parse_timestamp(value):
     """Convierte timestamps Wazuh ISO-8601 a datetime con timezone."""
     if not value:
         return None
+
     try:
+        # Wazuh puede entregar el offset como -0300/+0000,
+        # mientras datetime.fromisoformat() requiere -03:00/+00:00.
+        value = re.sub(r"([+-]\d{2})(\d{2})$", r"\1:\2", value)
         return datetime.fromisoformat(value)
     except ValueError:
         return None
