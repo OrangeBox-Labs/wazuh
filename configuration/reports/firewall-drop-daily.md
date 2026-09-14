@@ -46,7 +46,7 @@ El filtro `--group` utiliza la pertenencia real de los agentes a grupos Wazuh me
 
 El destinatario se entrega explícitamente con `--email` y es obligatorio.
 
-El idioma por defecto es español. Los títulos y etiquetas del informe están traducidos; las descripciones técnicas de Wazuh se conservan para no perder información útil al investigar una detección.
+El idioma por defecto es español. `--lang es|en` permite cambiar el idioma de títulos y etiquetas; las descripciones técnicas de Wazuh se conservan.
 
 ```bash
 firewall-drop-daily.py --yesterday --group all --email soporte@orangebox.cl
@@ -69,16 +69,17 @@ El HTML generado se archiva bajo:
 
 ## Diseño para correo electrónico
 
-El renderer utiliza HTML orientado específicamente a clientes de correo:
+El renderer está diseñado específicamente para clientes de correo y utiliza:
 
 - layout basado en tablas HTML;
 - estilos críticos inline;
 - sin `flex`, CSS Grid ni JavaScript;
-- ancho máximo de aproximadamente 640 px;
+- ancho máximo aproximado de 640 px;
 - contenido adaptable a pantallas pequeñas;
-- `<details>` para mantener las listas largas de IPs contraídas cuando el cliente lo soporta.
+- logo corporativo usado por las alertas OrangeBox;
+- `<details>` para las listas de IPs cuando el cliente lo soporta.
 
-Esto evita depender de características CSS que funcionan bien en Thunderbird de escritorio pero pueden ser eliminadas o interpretadas de forma diferente por webmail y clientes móviles.
+Los clientes que no soportan `<details>` pueden mostrar directamente el contenido desplegable. No se utiliza JavaScript ni mecanismos interactivos que dependan de un navegador completo.
 
 ## Contenido del informe
 
@@ -95,7 +96,7 @@ Presenta:
 
 ### Respuesta automática · Firewall Drop
 
-Esta sección correlaciona la detección que originó `firewall-drop` con las IPs que fueron bloqueadas.
+Esta sección correlaciona los intentos/detecciones que originaron `firewall-drop` con las IPs que fueron bloqueadas.
 
 Para cada sistema y regla muestra:
 
@@ -104,11 +105,11 @@ Para cada sistema y regla muestra:
 - cantidad de intentos/detecciones correlacionados con las IP bloqueadas;
 - cantidad de IPs bloqueadas;
 - primera y última detección;
-- lista de IPs en un menú desplegable.
+- lista de IPs en un menú desplegable cuando el cliente de correo lo soporta.
 
-No se muestra la duración configurada en Active Response porque describe la configuración del mecanismo, no la actividad observada. Tampoco se presenta la cantidad de ejecuciones `add` como una métrica de seguridad, ya que varias ejecuciones pueden corresponder a la misma IP.
+No se muestra la duración configurada en Active Response porque describe la configuración del mecanismo, no la actividad observada. Tampoco se muestra la cantidad de ejecuciones `add` como métrica principal, porque varias ejecuciones pueden corresponder a una misma IP.
 
-La correlación de intentos se realiza usando el mismo agente, regla e IP de origen. De esta manera, el informe puede responder a una pregunta útil para el cliente: **cuántos intentos fueron detectados y cuántas IPs terminaron bloqueadas automáticamente**.
+La correlación utiliza el mismo agente, regla e IP de origen. Así, el informe puede responder de forma clara cuántos intentos fueron detectados y cuántas IPs terminaron bloqueadas automáticamente.
 
 ### Intentos de acceso
 
@@ -149,9 +150,9 @@ El término **intento de ataque** se utiliza para destacar que la actividad pres
 
 Wazuh incorpora en las alertas los identificadores MITRE ATT&CK, junto con el nombre de la técnica y la táctica cuando están disponibles. El informe conserva el identificador técnico y añade una explicación corta pensada para personas no especialistas.
 
-El script mantiene las explicaciones dentro del propio archivo para que el reporte sea portable y no dependa de una consulta externa durante su ejecución.
+Las explicaciones se mantienen dentro del propio script para que el reporte sea portable y no dependa de una consulta externa durante su ejecución.
 
-Las explicaciones incorporadas cubren las técnicas MITRE que aparecen actualmente en los reportes OrangeBox, entre ellas:
+Actualmente se incluyen explicaciones para las técnicas observadas en los reportes OrangeBox, entre ellas:
 
 ```text
 T1110       Fuerza bruta
@@ -176,15 +177,11 @@ T1105       Ingress Tool Transfer
 T1505.003   Web Shell
 ```
 
-Wazuh documenta que las reglas pueden asociarse a IDs MITRE y que las alertas resultantes incluyen el ID, táctica y técnica. La lista puede crecer cuando el ruleset de Wazuh incorpore nuevas detecciones.
+Si Wazuh incorpora una técnica que no tenga una explicación local, el script muestra igualmente el ID y el nombre proporcionados por Wazuh y utiliza una explicación genérica, evitando dejar un número sin contexto.
 
 ### Sistemas más afectados
 
 Muestra los sistemas con mayor cantidad de detecciones relevantes durante el período.
-
-### Validación del sistema
-
-Los eventos de prueba controlada OrangeBox se mantienen en el informe. La sección de validación explica que estas cifras corresponden también a pruebas realizadas para comprobar que las reglas y mecanismos de respuesta funcionan correctamente.
 
 ## Qué se considera evento de seguridad
 
@@ -201,6 +198,8 @@ malware
 privilege
 attack
 ```
+
+Los eventos de prueba controlada OrangeBox se mantienen dentro de los reportes. Esto permite demostrar que las reglas y mecanismos de respuesta han sido probados y que las cifras observadas no son números generados artificialmente.
 
 ## Cron recomendado
 
