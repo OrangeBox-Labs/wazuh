@@ -106,13 +106,19 @@
           - Agregar un comando a la whitelist requiere validarlo primero.
 
         Los comandos actualmente autorizados corresponden a los binarios
-        observados en la politica sudo de Zimbra. Se mantienen exactos por
-        defecto; no se aceptan argumentos adicionales salvo zmstat-fd, que
-        explicitamente aparece con wildcard (*) en sudoers.
+        observados en la politica sudo de Zimbra.
+
+        EXCEPCIONES ZIMBRA VALIDADAS:
+          - postconf puede recibir argumentos. Zimbra lo utiliza con
+            operaciones como "postconf -e ..." y "postconf -X ...".
+          - amavis-mc puede aparecer como ejecucion directa del binario.
+
+        Por seguridad, no se autoriza todo /opt/zimbra. Solamente los
+        binarios explicitamente definidos aqui.
     -->
     <rule id="10005" level="13">
         <if_sid>5402</if_sid>
-        <field name="command" negate="yes" type="pcre2">^/opt/zimbra/libexec/zmstat-fd(?:\s+.*)?$|^/opt/zimbra/common/sbin/postfix$|^/opt/zimbra/common/sbin/postalias$|^/opt/zimbra/common/sbin/qshape\.pl$|^/opt/zimbra/common/sbin/postconf$|^/opt/zimbra/common/sbin/postsuper$|^/opt/zimbra/common/sbin/postcat$|^/opt/zimbra/libexec/zmqstat$|^/opt/zimbra/libexec/zmmtastatus$|^/opt/zimbra/libexec/zmmailboxdmgr status$</field>
+        <field name="command" negate="yes" type="pcre2">^/opt/zimbra/libexec/zmstat-fd(?:\s+.*)?$|^/opt/zimbra/common/sbin/postfix$|^/opt/zimbra/common/sbin/postalias$|^/opt/zimbra/common/sbin/qshape\.pl$|^/opt/zimbra/common/sbin/postconf(?:\s+.*)?$|^/opt/zimbra/common/sbin/postsuper$|^/opt/zimbra/common/sbin/postcat$|^/opt/zimbra/common/sbin/amavis-mc(?:\s+.*)?$|^/opt/zimbra/libexec/zmqstat$|^/opt/zimbra/libexec/zmmtastatus$|^/opt/zimbra/libexec/zmmailboxdmgr status$</field>
         <description>ALERTA CRITICA: SUDO hacia ROOT con comando NO autorizado por la whitelist OrangeBox.</description>
         <group>syslog,sudo,privilege_escalation,privilege_escalation_root,orangebox_auth,orangebox_sudo_whitelist_enforced,</group>
     </rule>
