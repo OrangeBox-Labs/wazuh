@@ -53,9 +53,7 @@
             Accepted keyboard-interactive/pam for USER from IP port PORT ssh2
 
         Usamos <regex type="pcre2"> en lugar de <match> porque necesitamos
-        una expresion con alternativas. El regex se busca dentro del log
-        completo, por lo que no depende de que full_log comience directamente
-        con la palabra "Accepted".
+        una expresion con alternativas.
     -->
     <rule id="10001" level="13">
         <if_sid>5715</if_sid>
@@ -93,26 +91,30 @@
     <!--
         5402 = Successful sudo to ROOT executed.
 
-        Esta regla reemplaza la deteccion anterior basada en 5501.
-        El evento 5402 contiene el campo dinamico "command", por lo que
-        podemos aplicar una whitelist de comandos sudo directamente sobre
-        el evento que contiene COMMAND=.
+        La whitelist se mantiene dentro de esta misma regla mediante
+        una expresion negativa sobre el campo dinamico "command".
+
+        IMPORTANTE PARA ZIMBRA / CARBONIO:
+          - Zimbra usa /opt/zimbra.
+          - Carbonio CE usa /opt/zextras.
+          - Ambos representan la misma familia de componentes y deben
+            tener la misma politica de sudo.
+
+        Los binarios autorizados son los mismos en ambos arboles.
+        postconf se permite con sus argumentos porque Carbonio/Zimbra lo
+        utiliza para regenerar la configuracion completa de Postfix.
 
         SEGURIDAD:
-          - Los comandos incluidos en la expresion negativa son los UNICOS
-            comandos sudo -> root actualmente considerados autorizados.
-          - Cualquier otro comando sudo -> root dispara esta regla.
-          - No se filtra por UID, usuario ni proceso.
-          - Agregar un comando a la whitelist requiere validarlo primero.
-
-        Los comandos actualmente autorizados corresponden a los binarios
-        observados en la politica sudo de Zimbra. Se mantienen exactos por
-        defecto; no se aceptan argumentos adicionales salvo zmstat-fd, que
-        explicitamente aparece con wildcard (*) en sudoers.
+          - Solo se aceptan los ejecutables definidos explicitamente aqui.
+          - No se acepta un binario arbitrario por pertenecer a /opt/zimbra
+            o /opt/zextras.
+          - La integridad de estos ejecutables se controla adicionalmente
+            mediante FIM en agent.conf.
+          - Cualquier otro sudo -> root dispara esta regla.
     -->
     <rule id="10005" level="13">
         <if_sid>5402</if_sid>
-        <field name="command" negate="yes" type="pcre2">^/opt/zimbra/libexec/zmstat-fd(?:\s+.*)?$|^/opt/zimbra/common/sbin/postfix$|^/opt/zimbra/common/sbin/postalias$|^/opt/zimbra/common/sbin/qshape\.pl$|^/opt/zimbra/common/sbin/postconf$|^/opt/zimbra/common/sbin/postsuper$|^/opt/zimbra/common/sbin/postcat$|^/opt/zimbra/libexec/zmqstat$|^/opt/zimbra/libexec/zmmtastatus$|^/opt/zimbra/libexec/zmmailboxdmgr status$</field>
+        <field name="command" negate="yes" type="pcre2">^(?:/opt/(?:zimbra|zextras)/(?:libexec/zmstat-fd(?:\s+.*)?|common/sbin/postfix|common/sbin/postalias|common/sbin/qshape\.pl|common/sbin/postconf(?:\s+.*)?|common/sbin/postsuper|common/sbin/postcat|libexec/zmqstat|libexec/zmmtastatus|libexec/zmmailboxdmgr status))$</field>
         <description>ALERTA CRITICA: SUDO hacia ROOT con comando NO autorizado por la whitelist OrangeBox.</description>
         <group>syslog,sudo,privilege_escalation,privilege_escalation_root,orangebox_auth,orangebox_sudo_whitelist_enforced,</group>
     </rule>
@@ -122,19 +124,6 @@
 
 <!-- ================================================================
      SSH - FUERZA BRUTA COMPLETADA CON EXITO
-     ================================================================
-
-     5763 = secuencia de brute force SSH basada en 5760.
-     10001 = autenticacion SSH realmente exitosa.
-
-     La alerta solamente aparece cuando ambos eventos ocurren desde
-     la misma IP y el login exitoso ocurre despues de la deteccion
-     de brute force.
-
-     IMPORTANTE:
-         No usamos 5720 aqui. En la instalacion actual, la secuencia
-         que se dispara para los eventos de autenticacion fallida
-         utilizados en nuestras pruebas es 5760 -> 5763.
      ================================================================ -->
 <group name="orangebox,authentication,ssh,attack,">
 
@@ -166,20 +155,6 @@
 
 <!-- =================================================================
      EXCEPCIONES / WHITELIST - ESTA SECCION SIEMPRE VA AL FINAL
-     =================================================================
-
-     Convencion de IDs:
-         20000 - 29999 = Excepciones / whitelists.
-
-     IMPORTANTE:
-         La whitelist de sudo -> root se implementa dentro de la regla
-         10005 mediante una expresion negativa sobre el campo "command".
-
-         Esto es intencional: una regla hija de 10005 con level=0 NO
-         eliminaria la alerta ya generada por 10005. Por eso la exclusion
-         debe ocurrir dentro de la condicion de la propia deteccion.
-
-         Las excepciones de SSH permanecen como reglas independientes.
      ================================================================= -->
 
 <group name="orangebox,authentication,ssh,whitelist,">
@@ -227,8 +202,7 @@
     </rule>
 
     <!--
-        La antigua whitelist 20005 por UID 995 fue reemplazada por la
-        excepcion 20005 de IP adicional de certcoopeuch.
+        La antigua whitelist 20005 por UID 995 fue eliminada.
         No se debe filtrar SUDO por UID, usuario o identidad de Zimbra.
         El control correcto se realiza por comando en 10005.
     -->
