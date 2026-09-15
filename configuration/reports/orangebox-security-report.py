@@ -7,6 +7,10 @@ El HTML usa tablas e estilos inline para funcionar en Thunderbird, webmail y mó
 import argparse
 import gzip
 import html
+try:
+    import orjson
+except ImportError:
+    orjson = None
 import ipaddress
 import json
 import os
@@ -71,11 +75,8 @@ LABELS_EN = {
     "report": "Security Activity Report", "subtitle": "Security activity, detections and automated Wazuh responses", "security_events": "Security events", "high_alerts": "High-severity alerts", "source_ips": "Observed source IPs", "systems": "Affected systems", "firewall": "Automated response · Firewall Drop", "firewall_sub": "Detected attempts and IP addresses blocked automatically.", "agent": "System", "reason": "Reason", "rule": "Rule", "blocked_ips": "Blocked IPs", "attempts": "Detected attempts", "access": "Access attempts", "web": "Web access and reconnaissance attempts", "fim": "Detected file changes", "malware": "Malware and suspicious file detections", "priv": "Privilege escalation", "attack": "Detections classified as attack attempts", "mitre": "MITRE techniques observed in alerts", "technique": "Technique", "meaning": "What it means", "detections": "Associated alerts", "agents": "Most affected systems", "no_firewall": "No automatic blocks with a valid source IP were recorded.", "no_activity": "No detections were recorded for this category during the period.", "attack_note": "This section includes only alerts explicitly classified by the report as attack activity. The appearance of a MITRE technique below does not by itself mean that a confirmed attack occurred.", "mitre_note": "The counter shows how many Wazuh alerts were associated with each MITRE technique during the period. It does not necessarily represent successful logins, individual connections, or confirmed compromises.", "firewall_note": "Detected attempts are Wazuh detections associated with the IPs that were blocked; they do not necessarily equal the raw number of original connections or requests.", "technical_note": "Rule identifiers and descriptions come from the Wazuh detection engine. Detecting an attempt does not by itself mean that the system was compromised.",
 }
 
-
 def labels(lang): return LABELS_EN if lang == "en" else LABELS_ES
-
 def esc(value): return html.escape(str(value), quote=True)
-
 def valid_ip(value):
     try: ipaddress.ip_address(value); return True
     except (ValueError, TypeError): return False
@@ -125,12 +126,12 @@ def iter_log_files(start, end):
 
 def iter_json(path):
     opener=gzip.open if str(path).endswith(".gz") else open
-    with opener(path,"rt",encoding="utf-8",errors="replace") as handle:
+    with opener(path,"rb") as handle:
         for line in handle:
             try:
-                obj=json.loads(line)
+                obj=orjson.loads(line) if orjson is not None else json.loads(line)
                 if isinstance(obj,dict): yield obj
-            except json.JSONDecodeError: continue
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError): continue
 
 def group_members(group):
     if group.lower()=="all": return None
@@ -166,58 +167,76 @@ def parse_event(outer):
         alert=params.get("alert") or {}; alert_rule=alert.get("rule") or {}; agent=alert.get("agent") or {}; data=alert.get("data") or {}; src=data.get("srcip") or alert.get("srcip"); mitre=alert_rule.get("mitre") or {}
         return {"timestamp":parse_timestamp(alert.get("timestamp")) or timestamp,"outer_rule":rule_id,"rule_id":str(alert_rule.get("id","unknown")),"description":alert_rule.get("description","Firewall Drop"),"level":int(alert_rule.get("level",0) or 0),"groups":alert_rule.get("groups") or [],"agent_id":str(agent.get("id","000")),"agent_name":agent.get("name","unknown"),"srcip":str(src) if valid_ip(src) else None,"command":inner.get("command"),"alert_id":str(alert.get("id",outer.get("id",""))),"mitre":mitre.get("id",[]),"techniques":mitre.get("technique",[]),"url":data.get("url")}
     agent=outer.get("agent") or {}; data=outer.get("data") or {}; mitre=rule.get("mitre") or {}
-    return {"timestamp":timestamp,"outer_rule":rule_id,"rule_id":rule_id,"description":rule.get("description","Sin descripción"),"level":int(rule.get("level",0) or 0),"groups":rule.get("groups") or [],"agent_id":str(agent.get("id","000")),"agent_name":agent.get("name","unknown"),"srcip":str(data.get("srcip")) if valid_ip(data.get("srcip")) else None,"command":None,"alert_id":str(outer.get("id","")),"mitre":mitre.get("id",[]),"techniques":mitre.get("technique",[]),"url":data.get("url")}
+    return {"timestamp":timestamp,"outer_rule":rule_id,"rule_id":rule_id,"description":rule.get("description","Sin descripción"),"level":int(rule.get("level",0) or 0),"groups":rule.get("groups") or [],"agent_id":str(agent.get("id","000")),"agent_name":agent.get("name","unknown"),"srcip":str(data.get("srcip")) if valid_ip(data.get("srcip")) else None,"command":None,"alert_id":str(outer.get("id","")),"mitre":mitre.get("id",[]),"techniques":mitre.get("techniques",[]),"url":data.get("url")}
 
 def load_events(start,end,allowed):
     files=list(iter_log_files(start,end))
     if not files: raise SystemExit("No se encontraron logs JSON para el período solicitado")
-    events=[]; seen=set()
+    security_count=0; critical_count=0; source_ips=set(); agents=Counter()
+    categories={name:{"count":0,"ips":set(),"agents":set(),"rules":Counter(),"rule_agents":defaultdict(set)} for name in ("authentication","web","fim","malware","privilege","attack")}
+    mitre_counts=Counter(); mitre_names={}; firewall_ips=set(); firewall_rows=defaultdict(set); firewall_attempts=Counter()
+    seen_day=None; seen=set(); today=datetime.now().date()
     for path in files:
+        if path == Path(ALERTS_FILE): file_day=today
+        else:
+            try: file_day=datetime.strptime(f"{path.name[13:15]} {path.parent.name} {path.parent.parent.name}","%d %b %Y").date()
+            except (ValueError, IndexError): file_day=None
+        if file_day != seen_day: seen_day=file_day; seen=set()
         for outer in iter_json(path):
+            rule=outer.get("rule") or {}; outer_rule=str(rule.get("id",""))
+            if outer_rule != FIREWALL_RULE:
+                outer_ts=parse_timestamp(outer.get("timestamp"))
+                if not outer_ts or outer_ts<start or outer_ts>=end: continue
             event=parse_event(outer)
             if not event or event["timestamp"]<start or event["timestamp"]>=end: continue
             if allowed is not None and event["agent_id"] not in allowed: continue
             key=event["alert_id"]
-            if key and key in seen: continue
-            if key: seen.add(key)
-            event["category"]=classify(event["rule_id"],event["groups"],event["level"]); events.append(event)
-    return events
-
-def firewall_data(events):
-    adds=[e for e in events if e["outer_rule"]==FIREWALL_RULE and e["command"]=="add"]; deletes=[e for e in events if e["outer_rule"]==FIREWALL_RULE and e["command"]=="delete"]; rows=defaultdict(lambda:{"ips":set()}); security=[e for e in events if e["outer_rule"]!=FIREWALL_RULE]
-    for event in adds:
-        key=(event["agent_id"],event["agent_name"],event["rule_id"],event["description"])
-        if event["srcip"]: rows[key]["ips"].add(event["srcip"])
-    result=[]
-    for key,row in rows.items():
-        agent_id,agent_name,rule_id,description=key; ips=row["ips"]; attempts=sum(1 for e in security if e["agent_id"]==agent_id and e["rule_id"]==rule_id and e["srcip"] in ips)
+            if key:
+                if key in seen: continue
+                seen.add(key)
+            category=classify(event["rule_id"],event["groups"],event["level"]); event_agent=(event["agent_id"],event["agent_name"])
+            if event["outer_rule"]==FIREWALL_RULE:
+                if event["command"]=="add" and event["srcip"]:
+                    row_key=(event["agent_id"],event["agent_name"],event["rule_id"],event["description"]); firewall_rows[row_key].add(event["srcip"]); firewall_ips.add(event["srcip"])
+                continue
+            if event["srcip"]: firewall_attempts[(event["agent_id"],event["rule_id"],event["srcip"])] += 1
+            if category=="other": continue
+            security_count += 1
+            if event["level"]>=13: critical_count += 1
+            if event["srcip"]: source_ips.add(event["srcip"])
+            agents[event_agent] += 1
+            info=categories[category]; info["count"] += 1
+            if event["srcip"]: info["ips"].add(event["srcip"])
+            info["agents"].add(event["agent_id"])
+            rule_key=(event["rule_id"],event["description"]); info["rules"][rule_key] += 1; info["rule_agents"][rule_key].add(event["agent_name"])
+            techniques=event.get("techniques") or []
+            for index,mitre_id in enumerate(event.get("mitre") or []):
+                mitre_counts[mitre_id] += 1
+                if index<len(techniques) and techniques[index]: mitre_names[mitre_id]=techniques[index]
+    firewall_result=[]
+    for key,ips in firewall_rows.items():
+        agent_id,agent_name,rule_id,description=key; attempts=sum(firewall_attempts[(agent_id,rule_id,ip)] for ip in ips)
         if attempts==0: attempts=len(ips)
-        result.append({"agent_id":agent_id,"agent_name":agent_name,"rule_id":rule_id,"description":description,"ips":sorted(ips,key=lambda v:(ipaddress.ip_address(v).version,ipaddress.ip_address(v))),"attempts":attempts})
-    return adds,deletes,sorted(result,key=lambda r:r["agent_name"].lower())
+        firewall_result.append({"agent_id":agent_id,"agent_name":agent_name,"rule_id":rule_id,"description":description,"ips":sorted(ips,key=lambda v:(ipaddress.ip_address(v).version,ipaddress.ip_address(v))),"attempts":attempts})
+    return {"security_count":security_count,"critical_count":critical_count,"source_ips":source_ips,"agents":agents,"categories":categories,"mitre_counts":mitre_counts,"mitre_names":mitre_names,"firewall_ips":firewall_ips,"firewall_rows":sorted(firewall_result,key=lambda r:r["agent_name"].lower())}
 
-def section_rows(events):
-    counts=Counter((e["rule_id"],e["description"]) for e in events); rows=[]
-    for (rule_id,description),count in counts.most_common(12):
-        names=sorted({e["agent_name"] for e in events if e["rule_id"]==rule_id and e["description"]==description}); rows.append((rule_id,description,count,names))
+def section_rows(info):
+    rows=[]
+    for (rule_id,description),count in info["rules"].most_common(12): rows.append((rule_id,description,count,sorted(info["rule_agents"][(rule_id,description)])))
     return rows
 
-def mitre_rows(events):
-    counts=Counter(); names={}
-    for e in events:
-        ids=e.get("mitre") or []; techniques=e.get("techniques") or []
-        for index,mitre_id in enumerate(ids):
-            counts[mitre_id]+=1
-            if index<len(techniques) and techniques[index]: names[mitre_id]=techniques[index]
+def mitre_rows(summary):
+    counts=summary["mitre_counts"]; names=summary["mitre_names"]
     return [(mid,names.get(mid,"Técnica MITRE ATT&CK"),MITRE_DESCRIPTIONS.get(mid,"Comportamiento asociado a una técnica de ataque o intrusión; Wazuh la vinculó con esta detección."),count) for mid,count in counts.most_common()]
 
-def generate_html(events,title,subtitle,period,group,lang="es"):
-    L=labels(lang); security=[e for e in events if e["category"]!="other"]; critical=[e for e in security if e["level"]>=13]; categories={c:[e for e in security if e["category"]==c] for c in ("authentication","web","fim","malware","privilege","attack")}; firewall_adds,firewall_deletes,firewall_rows=firewall_data(events); firewall_ips={e["srcip"] for e in firewall_adds if e["srcip"]}; all_ips={e["srcip"] for e in security if e["srcip"]}; agents=Counter((e["agent_id"],e["agent_name"]) for e in security)
-    bg="#eef2f5"; dark="#182a33"; orange="#f58220"; text="#263238"; muted="#607d8b"; border="#d6e0e5"; page=[f"<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'></head><body style='margin:0;padding:0;background:{bg};font-family:Arial,Helvetica,sans-serif;color:{text};']"]
-    page.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:100%;'><tr><td align='center' style='padding:12px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:100%;max-width:1000px;background:#ffffff;border:1px solid #d5dde2;'>")
+def generate_html(summary,title,subtitle,period,group,lang="es"):
+    L=labels(lang); security_count=summary["security_count"]; critical_count=summary["critical_count"]; all_ips=summary["source_ips"]; agents=summary["agents"]; categories=summary["categories"]; firewall_rows=summary["firewall_rows"]; firewall_ips=summary["firewall_ips"]
+    bg="#eef2f5"; dark="#182a33"; orange="#f58220"; text="#263238"; muted="#607d8b"; border="#d6e0e5"; page=[f"<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'></head><body style='margin:0;padding:0;background:{bg};font-family:Arial,Helvetica,sans-serif;color:{text};'>"]
+    page.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:100%;'><tr><td align='center' style='padding:12px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:100%;background:#ffffff;border:1px solid #d5dde2;'>")
     page.append(f"<tr><td style='background:{dark};border-bottom:5px solid {orange};padding:16px 20px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr><td valign='middle'><img src='{LOGO_URL}' alt='OrangeBox IT Services' style='display:block;max-width:210px;height:auto;max-height:55px;border:0;'></td><td align='right' valign='middle' style='padding-left:10px;color:#fff;font-size:18px;font-weight:bold;'>Wazuh<div style='font-size:9px;color:#b8c5cb;'>SECURITY MONITORING</div></td></tr></table></td></tr>")
     page.append(f"<tr><td style='padding:24px 22px 14px;'><div style='color:{orange};font-size:11px;font-weight:bold;letter-spacing:1.4px;'>ORANGEBOX SECURITY · WAZUH</div><div style='font-size:26px;font-weight:bold;margin-top:5px;color:{text};'>{esc(title)}</div><div style='font-size:14px;color:{muted};padding-top:5px;'>{esc(subtitle)}</div><div style='margin-top:14px;background:#f4f7f8;border:1px solid #dbe4e8;padding:9px 11px;font-size:12px;color:#526873;'><b>Grupo:</b> {esc(group)} &nbsp; · &nbsp; <b>Período:</b> {esc(period)}</div></td></tr>")
     page.append("<tr><td style='padding:0 14px 18px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='8' border='0'><tr>")
-    metrics=[(len(security),L["security_events"]),(len(critical),L["high_alerts"]),(len(all_ips),L["source_ips"]),(len(agents),L["systems"])]
+    metrics=[(security_count,L["security_events"]),(critical_count,L["high_alerts"]),(len(all_ips),L["source_ips"]),(len(agents),L["systems"])]
     for value,label in metrics: page.append(f"<td width='25%' valign='top' align='center' style='background:#18313b;border-bottom:3px solid {orange};padding:12px 5px;color:#fff;'><div style='color:{orange};font-size:24px;font-weight:bold;'>{value:,}</div><div style='font-size:9px;color:#d3e0e5;text-transform:uppercase;'>{esc(label)}</div></td>")
     page.append("</tr></table></td></tr>")
     def section_open(icon,heading,sub=None):
@@ -236,16 +255,16 @@ def generate_html(events,title,subtitle,period,group,lang="es"):
     page.append(section_close())
     section_labels=[("🔐",L["access"],"authentication"),("🌐",L["web"],"web"),("📁",L["fim"],"fim"),("🦠",L["malware"],"malware"),("🔑",L["priv"],"privilege"),("🎯",L["attack"],"attack")]
     for icon,label,category in section_labels:
-        subset=categories[category]; page.append(section_open(icon,label))
-        if not subset: page.append(f"<tr><td style='padding:10px 14px;color:#147a4a;font-size:11px;'>{esc(L['attack_note'] if category=='attack' else L['no_activity'])}</td></tr>")
+        info=categories[category]; page.append(section_open(icon,label))
+        if not info["count"]: page.append(f"<tr><td style='padding:10px 14px;color:#147a4a;font-size:11px;'>{esc(L['attack_note'] if category=='attack' else L['no_activity'])}</td></tr>")
         else:
-            page.append(f"<tr><td style='padding:0 8px 8px;color:#78909c;font-size:10px;'><b>{len(subset):,}</b> detecciones · <b>{len({e['srcip'] for e in subset if e['srcip']}):,}</b> IPs · <b>{len({e['agent_id'] for e in subset}):,}</b> sistemas</td></tr><tr><td style='padding:0 8px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr><td style='background:#29414c;color:#fff;padding:8px;font-size:10px;font-weight:bold;'>Regla</td><td style='background:#29414c;color:#fff;padding:8px;font-size:10px;font-weight:bold;'>Descripción</td><td style='background:#29414c;color:#fff;padding:8px;font-size:10px;font-weight:bold;'>Detecciones</td><td style='background:#29414c;color:#fff;padding:8px;font-size:10px;font-weight:bold;'>Sistemas</td></tr>")
-            for rule_id,description,count,names in section_rows(subset):
+            page.append(f"<tr><td style='padding:0 8px 8px;color:#78909c;font-size:10px;'><b>{info['count']:,}</b> detecciones · <b>{len(info['ips']):,}</b> IPs · <b>{len(info['agents']):,}</b> sistemas</td></tr><tr><td style='padding:0 8px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr><td style='background:#29414c;color:#fff;padding:8px;font-size:10px;font-weight:bold;'>Regla</td><td style='background:#29414c;color:#fff;padding:8px;font-size:10px;font-weight:bold;'>Descripción</td><td style='background:#29414c;color:#fff;padding:8px;font-size:10px;font-weight:bold;'>Detecciones</td><td style='background:#29414c;color:#fff;padding:8px;font-size:10px;font-weight:bold;'>Sistemas</td></tr>")
+            for rule_id,description,count,names in section_rows(info):
                 shown=", ".join(names[:5])+(" …" if len(names)>5 else ""); page.append(f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-weight:bold;color:#d65d00;font-size:10px;'>{esc(rule_id)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:10px;overflow-wrap:anywhere;'>{esc(description)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:10px;'>{count:,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:10px;overflow-wrap:anywhere;'>{esc(shown)}</td></tr>")
             page.append("</table></td></tr>")
         if category=="attack": page.append(f"<tr><td style='padding:0 14px 10px;color:#78909c;font-size:10px;'>{esc(L['attack_note'])}</td></tr>")
         page.append(section_close())
-    page.append(section_open("🧭",L["mitre"],"MITRE ATT&CK")); page.append(f"<tr><td style='padding:8px 14px 5px;color:#78909c;font-size:10px;'>{esc(L['mitre_note'])}</td></tr>"); mitre=mitre_rows(security)
+    page.append(section_open("🧭",L["mitre"],"MITRE ATT&CK")); page.append(f"<tr><td style='padding:8px 14px 5px;color:#78909c;font-size:10px;'>{esc(L['mitre_note'])}</td></tr>"); mitre=mitre_rows(summary)
     if mitre:
         page.append("<tr><td style='padding:0 8px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"); page.append(f"<tr><td style='background:#29414c;color:#fff;padding:8px;font-size:10px;font-weight:bold;'>{esc(L['technique'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:10px;font-weight:bold;'>Nombre</td><td style='background:#29414c;color:#fff;padding:8px;font-size:10px;font-weight:bold;'>{esc(L['meaning'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:10px;font-weight:bold;'>{esc(L['detections'])}</td></tr>")
         for mitre_id,name,meaning,count in mitre: page.append(f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-weight:bold;color:#d65d00;font-size:10px;'>{esc(mitre_id)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:10px;'>{esc(name)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:10px;line-height:1.35;'>{esc(meaning)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:10px;'>{count:,}</td></tr>")
@@ -277,12 +296,12 @@ def main():
     for recipient in recipients:
         if not re.fullmatch(r"[^\s@]+@[^\s@]+",recipient): raise SystemExit(f"Dirección de correo inválida: {recipient}")
     mode=args.date and f"date:{args.date}" or next(name for name in ("today","yesterday","thisweek","lastweek","thismonth","lastmonth","thisyear","lastyear") if getattr(args,name))
-    now=datetime.now().astimezone(); start,end,label=period_bounds(mode,now); allowed=group_members(args.group); events=load_events(start,end,allowed); period=f"{start.strftime('%d/%m/%Y %H:%M')} — {end.strftime('%d/%m/%Y %H:%M') if end < now else 'ahora'}"; L=labels(args.lang); body=generate_html(events,L["report"],L["subtitle"],period,args.group,args.lang); archive=archive_html(body,f"{args.group}-{mode.replace(':','-')}-{start:%Y%m%d}-{end:%Y%m%d}")
+    now=datetime.now().astimezone(); start,end,label=period_bounds(mode,now); allowed=group_members(args.group); summary=load_events(start,end,allowed); period=f"{start.strftime('%d/%m/%Y %H:%M')} — {end.strftime('%d/%m/%Y %H:%M') if end < now else 'ahora'}"; L=labels(args.lang); body=generate_html(summary,L["report"],L["subtitle"],period,args.group,args.lang); archive=archive_html(body,f"{args.group}-{mode.replace(':','-')}-{start:%Y%m%d}-{end:%Y%m%d}")
     subject=f"[OrangeBox SOC] {label} — {args.group}"; sent=[]; failed=[]
     for recipient in recipients:
         try: send_email(subject,body,recipient); sent.append(recipient)
         except Exception as exc: failed.append((recipient,exc))
-    security=sum(1 for event in events if event["category"]!="other"); print(f"Destinatarios enviados: {', '.join(sent) if sent else 'ninguno'}")
+    security=summary["security_count"]; print(f"Destinatarios enviados: {', '.join(sent) if sent else 'ninguno'}")
     for recipient,exc in failed: print(f"ERROR enviando a {recipient}: {exc}")
     print(f"Grupo: {args.group}"); print(f"Periodo: {period}"); print(f"Eventos de seguridad: {security}"); print(f"Archivo: {archive}")
     if failed: raise SystemExit(1)
