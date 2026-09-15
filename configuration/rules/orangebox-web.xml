@@ -76,9 +76,18 @@
 
         Las rutas de reconocimiento de archivos sensibles se excluyen
         para no clasificarlas como brute force.
+
+        Nivel 11:
+        se conserva la alerta Wazuh, pero queda por debajo del umbral
+        12 utilizado por la integracion de correo OrangeBox.
+
+        IMPORTANTE:
+        El Active Response firewall-drop se mantiene asociado a esta
+        regla en la configuracion del manager, por lo que bajar el
+        nivel NO elimina el bloqueo.
     -->
 
-    <rule id="10025" level="13" frequency="10" timeframe="15">
+    <rule id="10025" level="11" frequency="10" timeframe="15">
         <if_matched_sid>10024</if_matched_sid>
         <id>^401$|^403$</id>
         <url type="pcre2" negate="yes">^/\.env|^/\.aws/|^/\.config/gcloud/|^/\.oci/|^/\.openai/|^/wp-config\.php|^/@fs/.*(\.env|\.aws/|\.config/gcloud/|\.oci/|\.openai/|wp-config\.php)</url>
