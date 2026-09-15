@@ -77,9 +77,7 @@ El renderer está diseñado específicamente para clientes de correo y utiliza:
 - ancho máximo aproximado de 640 px;
 - contenido adaptable a pantallas pequeñas;
 - logo corporativo usado por las alertas OrangeBox;
-- `<details>` para las listas de IPs cuando el cliente lo soporta.
-
-Los clientes que no soportan `<details>` pueden mostrar directamente el contenido desplegable. No se utiliza JavaScript ni mecanismos interactivos que dependan de un navegador completo.
+- sin listas interactivas de IPs, para mantener una visualización consistente en Gmail, Carbonio, Thunderbird y móvil.
 
 ## Contenido del informe
 
@@ -96,20 +94,20 @@ Presenta:
 
 ### Respuesta automática · Firewall Drop
 
-Esta sección correlaciona los intentos/detecciones que originaron `firewall-drop` con las IPs que fueron bloqueadas.
+Esta sección correlaciona las detecciones que originaron `firewall-drop` con las IPs que fueron bloqueadas.
 
 Para cada sistema y regla muestra:
 
 - motivo de la detección;
 - regla Wazuh que originó el bloqueo;
 - cantidad de intentos/detecciones correlacionados con las IP bloqueadas;
-- cantidad de IPs bloqueadas;
-- primera y última detección;
-- lista de IPs en un menú desplegable cuando el cliente de correo lo soporta.
+- cantidad de IPs bloqueadas automáticamente.
 
-No se muestra la duración configurada en Active Response porque describe la configuración del mecanismo, no la actividad observada. Tampoco se muestra la cantidad de ejecuciones `add` como métrica principal, porque varias ejecuciones pueden corresponder a una misma IP.
+No se muestran las IP individuales en el correo. El detalle completo permanece disponible en las alertas JSON de Wazuh y en los datos históricos utilizados por el reporte.
 
-La correlación utiliza el mismo agente, regla e IP de origen. Así, el informe puede responder de forma clara cuántos intentos fueron detectados y cuántas IPs terminaron bloqueadas automáticamente.
+Tampoco se muestra la duración configurada en Active Response porque describe la configuración del mecanismo, no la actividad observada. Ni se muestra la cantidad de ejecuciones `add` como métrica principal, porque varias ejecuciones pueden corresponder a una misma IP.
+
+La correlación utiliza el mismo agente, regla e IP de origen. El contador de **intentos detectados** corresponde a detecciones Wazuh asociadas a las IP que fueron bloqueadas; no equivale necesariamente a la cantidad bruta de conexiones o solicitudes originales. Esto es especialmente importante en reglas de correlación por frecuencia, donde una alerta puede representar múltiples eventos de origen.
 
 ### Intentos de acceso
 
@@ -131,7 +129,7 @@ Incluye reglas OrangeBox asociadas a malware, webshells y ejecutables sospechoso
 
 Incluye reglas de `sudo`, `su` y elevación a root, incluyendo la detección OrangeBox `10005`.
 
-### Intentos de ataque detectados
+### Detecciones clasificadas como intentos de ataque
 
 Agrupa detecciones asociadas a grupos como:
 
@@ -144,11 +142,25 @@ sensitive_file
 lateral_movement
 ```
 
+Además, la clasificación actual considera como actividad de ataque las alertas de severidad 12 o superior que no hayan quedado clasificadas antes en otra categoría específica.
+
 El término **intento de ataque** se utiliza para destacar que la actividad presenta características compatibles con una acción ofensiva, sin afirmar que el atacante haya conseguido comprometer el sistema.
 
-### Técnicas asociadas a intentos de ataque · MITRE ATT&CK
+Esta sección es independiente del resumen MITRE. Por eso puede existir un informe donde esta sección indique que no hubo detecciones clasificadas como ataque y, al mismo tiempo, existan técnicas MITRE asociadas a otras alertas de autenticación, web, FIM o privilegios.
+
+### Técnicas MITRE observadas en las alertas
 
 Wazuh incorpora en las alertas los identificadores MITRE ATT&CK, junto con el nombre de la técnica y la táctica cuando están disponibles. El informe conserva el identificador técnico y añade una explicación corta pensada para personas no especialistas.
+
+El contador de esta tabla indica **cuántas alertas de Wazuh fueron asociadas a la técnica** durante el período. No significa necesariamente la cantidad de accesos exitosos, conexiones individuales, ataques confirmados ni compromisos.
+
+Por ejemplo, si aparece:
+
+```text
+T1021.004   SSH   Acceso remoto a sistemas mediante SSH.   54,914
+```
+
+el `54,914` debe interpretarse como **54,914 alertas de Wazuh asociadas a la técnica T1021.004**, no como 54,914 ingresos exitosos por SSH.
 
 Las explicaciones se mantienen dentro del propio script para que el reporte sea portable y no dependa de una consulta externa durante su ejecución.
 
