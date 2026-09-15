@@ -1,0 +1,57 @@
+name: Build Wazuh Agent RPM (/opt/ossec)
+
+on:
+  workflow_dispatch:
+    inputs:
+      wazuh_version:
+        description: Wazuh release to build
+        required: false
+        default: "4.14.7"
+      jobs:
+        description: Parallel build jobs
+        required: false
+        default: "2"
+  push:
+    paths:
+      - "packages/agent/**"
+      - ".github/workflows/wazuh-agent-rpm.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build RPM
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout OrangeBox repository
+        uses: actions/checkout@v4
+
+      - name: Verify Docker
+        run: docker version
+
+      - name: Build Wazuh Agent RPM
+        env:
+          WAZUH_VERSION: ${{ inputs.wazuh_version || '4.14.7' }}
+          JOBS: ${{ inputs.jobs || '2' }}
+        run: ./packages/agent/build.sh
+
+      - name: Inspect RPM
+        run: |
+          set -euo pipefail
+          rpm -qip packages/agent/output/*.rpm
+          echo "--- installation paths ---"
+          rpm -qlp packages/agent/output/*.rpm | grep -E '^/opt/ossec(/|$)' | head -50
+          if rpm -qlp packages/agent/output/*.rpm | grep -q '^/var/ossec'; then
+            echo "ERROR: package contains /var/ossec paths" >&2
+            exit 1
+          fi
+
+      - name: Upload RPM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wazuh-agent-opt-ossec-${{ inputs.wazuh_version || '4.14.7' }}
+          path: packages/agent/output/*.rpm
+          if-no-files-found: error
+          retention-days: 30
