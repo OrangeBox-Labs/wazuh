@@ -217,8 +217,18 @@
         <group>authentication_success,orangebox_exception,orangebox_whitelist,sftp,</group>
     </rule>
 
+    <!-- SFTP automatizado de certcoopeuch - IP adicional -->
+    <rule id="20005" level="3">
+        <if_sid>10001</if_sid>
+        <srcip>200.68.21.26</srcip>
+        <user>certcoopeuch</user>
+        <description>EXCEPCION: Acceso SFTP automatizado de certcoopeuch desde IP adicional autorizada.</description>
+        <group>authentication_success,orangebox_exception,orangebox_whitelist,sftp,</group>
+    </rule>
+
     <!--
-        La antigua whitelist 20005 por UID 995 fue eliminada.
+        La antigua whitelist 20005 por UID 995 fue reemplazada por la
+        excepcion 20005 de IP adicional de certcoopeuch.
         No se debe filtrar SUDO por UID, usuario o identidad de Zimbra.
         El control correcto se realiza por comando en 10005.
     -->
