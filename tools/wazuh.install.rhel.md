@@ -1,142 +1,152 @@
-# `wazuh.install.rhel.sh` — Documentación técnica
+# wazuh.install.rhel.sh
 
-## Propósito
+Script idempotente para instalar y mantener Wazuh Agent y el logging de red OrangeBox.
 
-Script interactivo para preparar `/var/ossec` en un volumen lógico dedicado e instalar el agente Wazuh.
+## Compatibilidad
 
-El motivo principal es aislar `/var/ossec` cuando `/var` puede tener políticas restrictivas, especialmente `noexec`. El script crea un LV propio y lo monta con `defaults,nosuid,nodev`.
+Objetivo:
 
-**Estado:** esta documentación describe exactamente la versión actual. El deploy será rehecho posteriormente cuando incorporemos los logs de firewall y el soporte necesario para `firewall-drop` asociado a escaneo de puertos y DDoS.
+- CentOS 6, 7 y 8
+- AlmaLinux 8, 9 y 10
 
-## Flujo actual
+Para sistemas sin systemd utiliza SysV init.
 
-```text
-verificar /var/ossec
-        ↓
-detectar LV/VG de /var
-        ↓
-comprobar espacio
-        ↓
-crear LV wazuh de 100 MB
-        ↓
-formatear ext4
-        ↓
-montar /var/ossec
-        ↓
-actualizar fstab
-        ↓
-confirmar datos del agente
-        ↓
-instalar RPM Wazuh
-        ↓
-habilitar e iniciar wazuh-agent
-```
+## Principio
 
-## Funciones actuales
+El script se puede ejecutar repetidamente:
 
-### Almacenamiento
+- Si Wazuh Agent ya existe, no reinstala ni toca /var/ossec.
+- Si falta un componente, lo agrega.
+- Si ya existe y está correcto, lo conserva.
+- Si encuentra un estado inesperado, informa y termina.
+- Cada cambio importante tiene una validación.
 
-- Comprueba si `/var/ossec` ya está montado.
-- Si existe un montaje, solicita autorización antes de desmontarlo.
-- Si el directorio contiene archivos sin estar montado, solicita autorización antes de eliminarlos.
-- Detecta el LV y VG de `/var` mediante LVM.
-- Comprueba que existan al menos 100 MB libres.
-- Crea el LV `wazuh` de 100 MB.
-- Formatea como ext4.
-- Monta en `/var/ossec`.
-- Registra el montaje en `/etc/fstab`.
-- Si `mount -a` falla, elimina la entrada problemática y aborta.
+## Wazuh Agent
 
-### Seguridad del montaje
-
-La entrada actual usa:
+Valores iniciales:
 
 ```text
-defaults,nosuid,nodev
+Manager : 192.168.200.160
+Grupo   : OrangeBox
+Nombre  : $HOSTNAME
 ```
 
-`nosuid` evita efectos SUID/SGID y `nodev` impide dispositivos especiales en el filesystem. No se usa `noexec` porque Wazuh necesita ejecutar componentes desde `/var/ossec`.
+El script pregunta si están correctos y permite modificarlos.
 
-### Configuración del agente
-
-Solicita:
-
-- nombre del agente, proponiendo el hostname;
-- IP del Manager, por defecto `192.168.200.160`;
-- grupo, por defecto `OrangeBox`;
-- confirmación final.
-
-### Instalación
-
-Actualmente descarga e instala:
-
-```text
-wazuh-agent-4.14.5-1.x86_64.rpm
-```
-
-Pasa al instalador:
-
-```text
-WAZUH_MANAGER
-WAZUH_AGENT_NAME
-WAZUH_AGENT_GROUP
-```
-
-### Servicio
-
-Con systemd utiliza `systemctl enable --now wazuh-agent`. Si no existe systemd, intenta el camino SysV mediante `chkconfig`/`update-rc.d` y `service`.
-
-### Manejo de errores
-
-Utiliza `set -e` y comprobaciones explícitas para las operaciones críticas. La intención es detener la instalación ante errores de almacenamiento, filesystem, instalación o servicio.
-
-## Por qué es interactivo
-
-El script modifica almacenamiento, `/etc/fstab` y la instalación del agente. Por eso exige confirmaciones antes de operaciones potencialmente destructivas y antes de instalar.
-
-No fue diseñado como un `curl | bash` ciego.
-
-## Validación posterior
+La contraseña de enrolamiento no se guarda en Git. Puede entregarse con:
 
 ```bash
-mount | grep /var/ossec
-systemctl status wazuh-agent
-journalctl -u wazuh-agent -f
+WAZUH_REGISTRATION_PASSWORD='PASSWORD' ./wazuh.install.rhel.sh
 ```
 
-También debe verificarse desde el Manager que el agente aparece correctamente y pertenece al grupo esperado.
+o introducirse de forma interactiva. Nunca se muestra.
 
-## Limitaciones conocidas
+La instalación usa las variables de despliegue documentadas por Wazuh, incluyendo `WAZUH_MANAGER`, `WAZUH_REGISTRATION_SERVER`, `WAZUH_REGISTRATION_PASSWORD`, `WAZUH_AGENT_NAME` y `WAZUH_AGENT_GROUP`. citeturn519500search1turn519500search4
 
-El script **todavía no configura**:
+Después se comprueba:
 
-- logs de firewall;
-- fuentes de eventos necesarias para auditar `firewall-drop`;
-- detecciones de escaneo de puertos;
-- detecciones DDoS;
-- cualquier otra función que decidamos incorporar al nuevo deploy.
+- paquete instalado;
+- `client.keys`;
+- servicio activo.
 
-Esto es intencional: primero terminaremos el diseño de detección/Active Response y después reharemos el deploy para instalar el conjunto completo de capacidades.
+## /var/ossec
 
-## Próximo rediseño
+La funcionalidad histórica de crear un LV de 100 MB se mantiene en el flujo de instalación nueva.
 
-Cuando llegue ese momento habrá que revisar conjuntamente:
+El script nunca borra contenido existente de `/var/ossec`.
 
-1. versión del agente;
-2. distribución soportada;
-3. montaje de `/var/ossec`;
-4. `agent.conf`;
-5. logs del firewall real de cada host;
-6. compatibilidad de `firewall-drop`;
-7. persistencia y expiración de bloqueos;
-8. logging de Active Response;
-9. comportamiento después de reinicio;
-10. validación automática post-instalación.
+## Firewall
 
-No se adelantan aquí decisiones que todavía no hemos tomado.
+Primero detecta firewalld.
 
-## Advertencias
+Si está activo:
 
-Este script **formatea un LV nuevo**. Debe revisarse el VG antes de ejecutarlo en producción.
+- usa `firewall-cmd --direct`;
+- agrega la regla TCP SYN OrangeBox;
+- la marca como permanente;
+- recarga y valida.
 
-La documentación antigua de `tools/README.md` mencionaba nombres y variables que ya no coinciden exactamente con el script. Esta página debe considerarse la referencia documental del comportamiento actual del archivo versionado.
+Si firewalld no está activo:
+
+- usa iptables;
+- evita localhost;
+- aplica limitación de 20 eventos/s y burst 40;
+- intenta persistir en `/etc/sysconfig/iptables`.
+
+La regla solamente registra; no bloquea.
+
+## rsyslog
+
+Se utiliza el prefijo:
+
+```text
+ORANGEBOX-FW:
+```
+
+y el archivo:
+
+```text
+/var/log/orangebox-firewall.log
+```
+
+El filtro se inserta antes de la regla estándar de `/var/log/messages`.
+
+El script realiza un test con `logger` y exige:
+
+- evento presente en el log dedicado;
+- evento ausente de `messages`.
+
+Se usa sintaxis clásica de rsyslog para mantener compatibilidad con CentOS antiguos.
+
+## logrotate
+
+Archivo:
+
+```text
+/etc/logrotate.d/orangebox-firewall
+```
+
+Configuración:
+
+```text
+daily
+rotate 0
+missingok
+notifempty
+copytruncate
+```
+
+No se conservan logs rotados.
+
+## Wazuh y la detección de red
+
+El agente consume:
+
+```text
+/var/log/orangebox-firewall.log
+```
+
+Las reglas OrangeBox asociadas están en:
+
+```text
+configuration/rules/orangebox-firewall.xml
+```
+
+Actualmente:
+
+- `10450`: señal de TCP SYN usada para correlación sin generar alertas individuales.
+- `10453`: 12 SYN en 90 segundos, misma IP origen y diferentes puertos destino.
+
+## Futuros componentes
+
+Toda nueva dependencia del agente para Wazuh se incorpora a este script siguiendo el mismo patrón:
+
+```text
+detectar -> agregar si falta -> validar -> informar error
+```
+
+Mantener el script simple es una prioridad.
+
+## Regla de oro
+
+**No duplicar. No adivinar. Validar cada cambio.**
