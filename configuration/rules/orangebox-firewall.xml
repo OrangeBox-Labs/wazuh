@@ -100,4 +100,51 @@
         <group>orangebox,firewall,network_scan,</group>
     </rule>
 
+    
+    <!--
+        10454 - SYN FLOOD DESDE UNA MISMA IP HACIA UN MISMO SERVICIO
+
+        60 TCP SYN en 10 segundos
+        +
+        misma IP origen
+        +
+        mismo puerto destino
+
+        Es una condicion de volumen sobre un unico servicio y no una
+        deteccion de port scan. Usa la misma señal 10450.
+    -->
+    <rule id="10454" level="12" frequency="60" timeframe="10" ignore="60">
+        <if_matched_sid>10450</if_matched_sid>
+        <same_srcip />
+        <same_dstport />
+        <description>ORANGEBOX: Possible TCP SYN flood from same source IP.</description>
+        <mitre>
+            <id>T1499</id>
+        </mitre>
+        <group>orangebox,firewall,flood,denial_of_service,</group>
+    </rule>
+
+    <!--
+        10455 - POSIBLE DENEGACION DE SERVICIO DISTRIBUIDA
+
+        80 IPs origen diferentes
+        +
+        mismo puerto destino
+        +
+        10 segundos
+
+        No activa bloqueo automatico porque no existe una unica IP origen
+        que represente al conjunto del trafico.
+    -->
+    <rule id="10455" level="12" frequency="80" timeframe="10">
+        <if_matched_sid>10450</if_matched_sid>
+        <different_srcip />
+        <same_dstport />
+        <description>ORANGEBOX: Possible distributed denial of service attack.</description>
+        <mitre>
+            <id>T1498</id>
+        </mitre>
+        <group>orangebox,firewall,flood,denial_of_service,ddos,</group>
+    </rule>
+
 </group>
