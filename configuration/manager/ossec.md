@@ -212,6 +212,26 @@ El Active Response recibe `srcip` y aplica el bloqueo local en el agente donde s
 
 La duración inicial se mantiene en una hora para permitir una respuesta automática sin convertir la primera detección en un bloqueo permanente. La reincidencia se evaluará posteriormente mediante los mecanismos de repetición de Active Response.
 
+## 16C. Flood y DoS de red
+
+Las señales de volumen utilizan la misma fuente `/var/log/orangebox-firewall.log` y la misma regla precursora `10450`.
+
+### 10454 - SYN flood desde una misma IP
+
+Se requieren 60 TCP SYN en 10 segundos, desde la misma IP y hacia el mismo puerto destino.
+
+`10454` tiene Active Response `firewall-drop` durante 3600 segundos.
+
+### 10455 - posible DoS distribuido
+
+Se requieren 80 IPs origen diferentes en 10 segundos hacia el mismo puerto destino.
+
+No se aplica Active Response automáticamente a `10455`, porque un evento individual no identifica una única IP que represente al conjunto del ataque.
+
+Los elementos `same_srcip`, `different_srcip` y `same_dstport` son filtros de correlación soportados por Wazuh y se usan junto con `frequency` y `timeframe`. citeturn169742search0
+
+Los umbrales son valores iniciales de OrangeBox y deben validarse contra el comportamiento real de cada servidor antes de endurecer la respuesta automática.
+
 ## 17. Comandos locales
 
 El Manager ejecuta periódicamente:
