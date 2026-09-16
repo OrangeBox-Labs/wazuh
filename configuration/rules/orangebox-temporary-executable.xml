@@ -1,78 +1,42 @@
 <!--
-    ORANGEBOX - Detección de archivos ejecutables en directorios temporales
-    =======================================================================
+    ORANGEBOX - Deteccion de archivos ejecutables en directorios temporales
 
     Objetivo
-    --------
-    Detectar archivos ejecutables en:
+    Detectar archivos ejecutables en /tmp/, /var/tmp/ y /dev/shm/.
 
-        /tmp/
-        /var/tmp/
-        /dev/shm/
-
-    Se consideran relevantes:
-        - Archivos creados ya con permiso de ejecución.
-        - Archivos existentes a los que se agrega ejecución.
-
-    La detección es independiente de:
-        - usuario
-        - grupo
-        - nombre
-        - extensión
-        - contenido
-
-    EXCEPCION OPERACIONAL
-    ---------------------
-    dracut construye initramfs temporalmente bajo /var/tmp/dracut.*.
-    Estos árboles contienen ejecutables, librerías, scripts y enlaces
-    con permisos que pueden disparar esta detección de forma masiva.
-
-    Por lo tanto, se excluyen exclusivamente las rutas:
-
-        /var/tmp/dracut.*
-
-    El resto de /var/tmp/ continúa siendo monitoreado normalmente.
-
-    Se utiliza exclusivamente Wazuh FIM nativo.
-
-    Eventos FIM:
+    Eventos FIM utilizados:
         554 = File added
         550 = File modified
 
     Convencion de IDs OrangeBox:
-        10000 - 19999 = Reglas de deteccion.
-        20000 - 29999 = Excepciones / whitelists.
+        10000 - 19999 = Reglas de deteccion
+        20000 - 29999 = Excepciones y whitelists
+
+    Excepcion operacional:
+        dracut utiliza /var/tmp/dracut.* durante la construccion de initramfs.
+        Esos arboles pueden generar gran cantidad de eventos FIM legitimos.
+        La excepcion se limita exclusivamente a /var/tmp/dracut.*.
 
     IMPORTANTE:
-        Las reglas de deteccion se definen primero.
-        Las excepciones / whitelists se encuentran EXCLUSIVAMENTE
-        al FINAL de este archivo.
+        Las reglas y excepciones deben permanecer dentro del elemento group.
+        Los comentarios XML no deben contener dobles guiones.
 -->
-
-<!-- ================================================================
-     REGLAS DE DETECCION
-     ================================================================ -->
 
 <group name="orangebox_temporary_executable">
 
     <!--
-        ================================================================
         10410 - ARCHIVO CREADO YA EJECUTABLE
-        ================================================================
 
-        Detecta archivos que aparecen en el sistema con algún permiso
-        de ejecución desde el momento en que FIM los registra.
+        Detecta archivos que aparecen en el sistema con algun permiso
+        de ejecucion desde el momento en que FIM los registra.
 
         Ejemplo:
+            install -m 755 /dev/null /var/tmp/test.sh
 
-            install -m 755 /dev/null /dev/shm/test
-
-        Genera:
-
-            554 -> File added
-            10410 -> nuestra alerta
+        Flujo FIM:
+            554  = File added
+            10410 = alerta OrangeBox
     -->
-
     <rule id="10410" level="15">
         <if_sid>554</if_sid>
         <field name="file" type="pcre2">^/tmp/|^/var/tmp/|^/dev/shm/</field>
@@ -86,42 +50,24 @@
     </rule>
 
     <!--
-        ================================================================
-        10432 - ARCHIVO EXISTENTE AL QUE SE AGREGA EJECUCIÓN
-        ================================================================
+        10432 - ARCHIVO EXISTENTE AL QUE SE AGREGA EJECUCION
 
         Detecta cambios de permisos sobre archivos existentes.
 
-        Ejemplo:
-
-            chmod 644 archivo
-            chmod 755 archivo
-
-        FIM genera:
-
+        La regla requiere:
             550
             changed_fields = permission
 
-        Esta regla solamente se activa cuando el nuevo permiso contiene
-        ejecución.
+        El permiso nuevo debe contener ejecucion en alguna de las tres
+        posiciones correspondientes a owner, group u other.
 
-        Posiciones de ejecución:
+        x = ejecucion
+        s = ejecucion junto con setuid o setgid
+        t = ejecucion junto con sticky
 
-            rwx------   -> owner
-            ---rwx---   -> group
-            ------rwx   -> other
-
-        También contempla:
-
-            s = ejecución + setuid/setgid
-            t = ejecución + sticky
-
-        No contempla:
-
-            S = setuid/setgid SIN ejecución
-            T = sticky SIN ejecución
+        S y T no cuentan porque representan setuid, setgid o sticky
+        sin permiso de ejecucion.
     -->
-
     <rule id="10432" level="15">
         <if_sid>550</if_sid>
         <field name="file" type="pcre2">^/tmp/|^/var/tmp/|^/dev/shm/</field>
@@ -135,48 +81,40 @@
         </mitre>
     </rule>
 
+    <!--
+        20040 - EXCEPCION DRACUT PARA 10410
+
+        dracut genera arboles temporales bajo /var/tmp/dracut.* durante
+        la construccion de initramfs.
+
+        Esta excepcion solamente actua sobre eventos que ya fueron
+        identificados por la regla 10410 y cuyo path comienza exactamente
+        con /var/tmp/dracut.
+
+        El resto de /tmp, /var/tmp y /dev/shm continua bajo deteccion.
+    -->
+    <rule id="20040" level="0">
+        <if_sid>10410</if_sid>
+        <field name="file" type="pcre2">^/var/tmp/dracut\.</field>
+        <description>
+            EXCEPCION ORANGEBOX: archivo ejecutable generado por dracut.
+        </description>
+        <group>orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
+    <!--
+        20041 - EXCEPCION DRACUT PARA 10432
+
+        Descarta los cambios de permisos detectados por 10432 cuando
+        el archivo pertenece al arbol /var/tmp/dracut.*.
+    -->
+    <rule id="20041" level="0">
+        <if_sid>10432</if_sid>
+        <field name="file" type="pcre2">^/var/tmp/dracut\.</field>
+        <description>
+            EXCEPCION ORANGEBOX: cambio de permisos generado por dracut.
+        </description>
+        <group>orangebox_exception,orangebox_whitelist,</group>
+    </rule>
+
 </group>
-
-
-<!-- =================================================================
-     EXCEPCIONES / WHITELIST
-     =================================================================
-
-     Las excepciones se mantienen al final del archivo y utilizan IDs
-     entre 20000 y 29999.
-
-     20040 - EXCEPCION DRACUT
-     ------------------------
-     dracut genera árboles temporales bajo /var/tmp/dracut.* durante
-     la construcción de initramfs. Los archivos de esos árboles pueden
-     aparecer ya con permisos de ejecución o recibir cambios de permiso,
-     generando ruido masivo en FIM.
-
-     La excepción está limitada al prefijo /var/tmp/dracut. y solamente
-     descarta eventos que ya hayan sido identificados por 10410 o 10432.
-
-     El resto de /tmp, /var/tmp y /dev/shm continúa bajo detección normal.
-
-     IMPORTANTE:
-         - No se excluye /var/tmp completo.
-         - No se excluyen otros procesos de construcción de initramfs.
-         - La excepción se limita exclusivamente a dracut.*.
-     ================================================================= -->
-
-<rule id="20040" level="0">
-    <if_sid>10410</if_sid>
-    <field name="file" type="pcre2">^/var/tmp/dracut\.</field>
-    <description>
-        EXCEPCION ORANGEBOX: archivo ejecutable generado por dracut.
-    </description>
-    <group>orangebox_exception,orangebox_whitelist,</group>
-</rule>
-
-<rule id="20041" level="0">
-    <if_sid>10432</if_sid>
-    <field name="file" type="pcre2">^/var/tmp/dracut\.</field>
-    <description>
-        EXCEPCION ORANGEBOX: cambio de permisos generado por dracut.
-    </description>
-    <group>orangebox_exception,orangebox_whitelist,</group>
-</rule>
