@@ -198,6 +198,20 @@ Se aplica a múltiples intentos contra rutas sensibles como `.env`, credenciales
 
 No se confía en User-Agent para permitir crawlers. Se puede falsificar demasiado fácilmente.
 
+## 16B. Port scan OrangeBox
+
+La regla OrangeBox `10453` ejecuta `firewall-drop` localmente cuando se detectan 12 intentos TCP SYN en 90 segundos desde la misma IP hacia diferentes puertos destino.
+
+El bloqueo inicial es de:
+
+```text
+3600 segundos = 1 hora
+```
+
+El Active Response recibe `srcip` y aplica el bloqueo local en el agente donde se generó la alerta.
+
+La duración inicial se mantiene en una hora para permitir una respuesta automática sin convertir la primera detección en un bloqueo permanente. La reincidencia se evaluará posteriormente mediante los mecanismos de repetición de Active Response.
+
 ## 17. Comandos locales
 
 El Manager ejecuta periódicamente:
