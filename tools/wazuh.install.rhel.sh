@@ -1,245 +1,278 @@
 #!/bin/bash
 
-# ==========================================
-# Script: crear_lv_wazuh.sh
-# Descripción: Crea un LV de 100MB para Wazuh en el VG de /var,
-#              lo formatea, monta en /var/ossec, añade al fstab,
-#              instala el agente Wazuh y habilita el servicio.
-# ==========================================
+# OrangeBox - Wazuh Agent / Firewall Logging
+# Compatible: CentOS 6/7/8 and AlmaLinux 8/9/10.
+# Idempotent: existing correct settings are preserved; missing settings are added;
+# unexpected existing settings cause an error instead of guessing.
 
-set -e # Detiene el script si cualquier comando falla
+set -u
 
-# Colores para mensajes
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-NC='\033[0m' # No Color
-
-# ==========================================
-# 0. Verificar si /var/ossec ya está montado
-# ==========================================
-MOUNT_POINT="/var/ossec"
-
-# Verificar si el directorio está montado
-if mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
-  echo -e "${RED}❌ ERROR: Ya existe un montaje en $MOUNT_POINT${NC}"
-  echo -e "${RED}   Ejecuta 'mount | grep $MOUNT_POINT' para ver los detalles.${NC}"
-  echo -e "${YELLOW}   ¿Deseas desmontarlo y continuar? (s/N): ${NC}"
-  read -p "" DESMONTAR
-  if [[ "$DESMONTAR" =~ ^[Ss]$ ]]; then
-    if umount "$MOUNT_POINT" 2>/dev/null; then
-      echo -e "${GREEN}==> Montaje desmontado exitosamente.${NC}"
-      # Eliminar entrada del fstab si existe
-      sed -i "\|$MOUNT_POINT|d" /etc/fstab 2>/dev/null
-    else
-      echo -e "${RED}❌ ERROR: No se pudo desmontar $MOUNT_POINT${NC}"
-      echo -e "${RED}   Abortando instalación.${NC}"
-      exit 1
-    fi
-  else
-    echo -e "${RED}Abortando instalación.${NC}"
-    exit 1
-  fi
-fi
-
-# Verificar si el directorio existe y tiene contenido (montaje previo no desmontado correctamente)
-if [ -d "$MOUNT_POINT" ] && [ "$(ls -A $MOUNT_POINT 2>/dev/null)" ]; then
-  echo -e "${YELLOW}⚠️  Advertencia: El directorio $MOUNT_POINT no está montado pero contiene archivos.${NC}"
-  read -p "¿Deseas eliminar el contenido y continuar? (s/N): " ELIMINAR
-  if [[ "$ELIMINAR" =~ ^[Ss]$ ]]; then
-    rm -rf "${MOUNT_POINT:?}"/*
-    echo -e "${GREEN}==> Contenido eliminado.${NC}"
-  else
-    echo -e "${RED}Abortando instalación.${NC}"
-    exit 1
-  fi
-fi
-
-# ==========================================
-# 1. Obtener información del VG y LV de /var
-# ==========================================
-echo -e "${YELLOW}==> Obteniendo información del volumen de /var...${NC}"
-VAR_LV=$(lvdisplay -c | grep -w "var" | cut -d: -f1 | head -n1)
-if [ -z "$VAR_LV" ]; then
-  echo -e "${RED}ERROR: No se pudo identificar un volumen lógico para /var.${NC}"
-  echo "Asegúrate de que /var esté en un LV y que lvm2 esté instalado."
-  exit 1
-fi
-
-# Extraer el Grupo de Volúmenes (VG) del LV de /var
-VG_NAME=$(lvdisplay -c | grep -w "$VAR_LV" | cut -d: -f2)
-
-echo -e "${GREEN}==> LV de /var encontrado en: $VAR_LV ${NC}"
-echo -e "${GREEN}==> Grupo de Volúmenes (VG) identificado: $VG_NAME ${NC}"
-
-# ==========================================
-# 2. Verificar espacio libre en el VG
-# ==========================================
-FREE_PE=$(vgdisplay "$VG_NAME" -c | cut -d: -f16)
-if [ "$FREE_PE" -lt 25 ]; then
-  echo -e "${RED}ERROR: Espacio insuficiente en el VG '$VG_NAME'. Se requieren al menos 100MB libres.${NC}"
-  exit 1
-fi
-echo -e "${GREEN}==> Espacio libre confirmado en $VG_NAME.${NC}"
-
-# ==========================================
-# 3. Crear el LV wazuh de 100MB
-# ==========================================
-LV_NAME="wazuh"
-echo -e "${YELLOW}==> Creando LV '$LV_NAME' de 100MB en VG '$VG_NAME'...${NC}"
-if ! lvcreate -L 100M -n "$LV_NAME" "$VG_NAME" 2>/dev/null; then
-  echo -e "${RED}❌ ERROR: No se pudo crear el LV '$LV_NAME'.${NC}"
-  echo -e "${RED}   Puede que ya exista o no haya suficiente espacio.${NC}"
-  echo -e "${RED}   Abortando instalación.${NC}"
-  exit 1
-fi
-echo -e "${GREEN}==> LV '$LV_NAME' creado.${NC}"
-
-# ==========================================
-# 4. Formatear como ext4
-# ==========================================
-echo -e "${YELLOW}==> Formateando /dev/$VG_NAME/$LV_NAME como ext4...${NC}"
-if ! mkfs.ext4 -F "/dev/$VG_NAME/$LV_NAME" >/dev/null 2>&1; then
-  echo -e "${RED}❌ ERROR: No se pudo formatear /dev/$VG_NAME/$LV_NAME.${NC}"
-  echo -e "${RED}   Abortando instalación.${NC}"
-  exit 1
-fi
-echo -e "${GREEN}==> Formateo completado.${NC}"
-
-# ==========================================
-# 5. Crear punto de montaje /var/ossec (si no existe)
-# ==========================================
-if [ ! -d "$MOUNT_POINT" ]; then
-  echo -e "${YELLOW}==> Creando directorio $MOUNT_POINT...${NC}"
-  if ! mkdir -p "$MOUNT_POINT" 2>/dev/null; then
-    echo -e "${RED}❌ ERROR: No se pudo crear el directorio $MOUNT_POINT.${NC}"
-    echo -e "${RED}   Abortando instalación.${NC}"
-    exit 1
-  fi
-fi
-
-# ==========================================
-# 6. Añadir entrada al fstab
-# ==========================================
-FSTAB_ENTRY="/dev/$VG_NAME/$LV_NAME $MOUNT_POINT              ext4    defaults,nosuid,nodev 1 2"
-echo -e "${YELLOW}==> Añadiendo entrada a /etc/fstab...${NC}"
-echo "$FSTAB_ENTRY" >>/etc/fstab
-
-# ==========================================
-# 7. Montar la nueva partición usando la entrada del fstab
-# ==========================================
-echo -e "${YELLOW}==> Montando $MOUNT_POINT según /etc/fstab...${NC}"
-if ! mount -a 2>/dev/null; then
-  echo -e "${RED}❌ ERROR: 'mount -a' falló. La entrada en fstab puede ser incorrecta.${NC}"
-  echo -e "${RED}   Eliminando entrada problemática de /etc/fstab...${NC}"
-  sed -i "/$MOUNT_POINT/d" /etc/fstab
-  echo -e "${RED}   Abortando instalación.${NC}"
-  exit 1
-fi
-echo -e "${GREEN}==> Montaje exitoso.${NC}"
-
-echo -e "${GREEN}✅ Preparación del volumen completada exitosamente.${NC}"
-echo "Resumen de la operación:"
-echo "  - LV creado: /dev/$VG_NAME/$LV_NAME (100MB)"
-echo "  - Formato: ext4"
-echo "  - Montado en: $MOUNT_POINT"
-echo "  - Entrada en fstab: $FSTAB_ENTRY"
-
-# ==========================================
-# 9. Obtener nombre del agente
-# ==========================================
-CURRENT_HOSTNAME=$(hostname)
-echo -e "\n${YELLOW}==> Nombre de host detectado: $CURRENT_HOSTNAME${NC}"
-read -p "¿Deseas usar este nombre para el agente? (s/N): " CONFIRMAR_HOSTNAME
-if [[ "$CONFIRMAR_HOSTNAME" =~ ^[Ss]$ ]]; then
-  AGENT_NAME="$CURRENT_HOSTNAME"
-else
-  read -p "Ingresa el nombre personalizado para el agente: " AGENT_NAME
-fi
-
-# ==========================================
-# 10. Configurar IP del Manager
-# ==========================================
-MANAGER_IP="192.168.200.160"
-echo -e "${YELLOW}==> IP del Wazuh Manager configurada: $MANAGER_IP${NC}"
-read -p "¿Deseas usar esta IP? (s/N): " CONFIRMAR_IP
-if [[ ! "$CONFIRMAR_IP" =~ ^[Ss]$ ]]; then
-  read -p "Ingresa la IP correcta del Wazuh Manager: " MANAGER_IP
-fi
-
-# ==========================================
-# 11. Configurar Grupo del agente
-# ==========================================
+WAZUH_VERSION="4.14.5"
+DEFAULT_MANAGER="192.168.200.160"
 DEFAULT_GROUP="OrangeBox"
-echo -e "${YELLOW}==> Grupo por defecto: $DEFAULT_GROUP${NC}"
-read -p "¿Deseas usar este grupo para el agente? (s/N): " CONFIRMAR_GRUPO
-if [[ "$CONFIRMAR_GRUPO" =~ ^[Ss]$ ]]; then
-  AGENT_GROUP="$DEFAULT_GROUP"
+DEFAULT_AGENT_NAME="$HOSTNAME"
+
+FIREWALL_LOG="/var/log/orangebox-firewall.log"
+LOGROTATE_FILE="/etc/logrotate.d/orangebox-firewall"
+
+fail() { echo "ERROR: $*" >&2; exit 1; }
+ok() { echo "OK: $*"; }
+warn() { echo "AVISO: $*" >&2; }
+has() { command -v "$1" >/dev/null 2>&1; }
+
+yesno() {
+    local a
+    while true; do
+        read -r -p "$1 (s/N): " a
+        case "$a" in
+            s|S) return 0 ;;
+            n|N|"") return 1 ;;
+            *) echo "Responde s o n." ;;
+        esac
+    done
+}
+
+[ "$(id -u)" -eq 0 ] || fail "Debes ejecutar como root."
+
+# ---------------------------------------------------------------------------
+# 1. Wazuh Agent
+# ---------------------------------------------------------------------------
+
+agent_installed() {
+    rpm -q wazuh-agent >/dev/null 2>&1 || [ -x /var/ossec/bin/wazuh-control ]
+}
+
+agent_version() {
+    rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' wazuh-agent 2>/dev/null || echo "desconocida"
+}
+
+install_agent() {
+    AGENT_NAME="${WAZUH_AGENT_NAME:-$DEFAULT_AGENT_NAME}"
+    MANAGER="${WAZUH_MANAGER:-$DEFAULT_MANAGER}"
+    GROUP="${WAZUH_AGENT_GROUP:-$DEFAULT_GROUP}"
+    PASSWORD="${WAZUH_REGISTRATION_PASSWORD:-}"
+
+    echo
+    echo "=== DATOS DE ENROLAMIENTO ==="
+    echo "Nombre : $AGENT_NAME"
+    echo "Manager: $MANAGER"
+    echo "Grupo  : $GROUP"
+    [ -n "$PASSWORD" ] && echo "Password: [definida por entorno]" || echo "Password: [no definida]"
+
+    if ! yesno "¿Los datos están correctos?"; then
+        read -r -p "Nombre [$AGENT_NAME]: " v; [ -n "$v" ] && AGENT_NAME="$v"
+        read -r -p "Manager [$MANAGER]: " v; [ -n "$v" ] && MANAGER="$v"
+        read -r -p "Grupo [$GROUP]: " v; [ -n "$v" ] && GROUP="$v"
+    fi
+
+    if [ -z "$PASSWORD" ]; then
+        read -r -s -p "Password de enrolamiento: " PASSWORD
+        echo
+    fi
+    [ -n "$PASSWORD" ] || fail "La password de enrolamiento está vacía."
+
+    echo
+    echo "=== CONFIRMACIÓN ==="
+    echo "Nombre : $AGENT_NAME"
+    echo "Manager: $MANAGER"
+    echo "Grupo  : $GROUP"
+    echo "Password: [oculta]"
+    yesno "¿Proceder?" || fail "Instalación cancelada."
+
+    # /var/ossec se prepara solamente para instalaciones nuevas.
+    if ! mountpoint -q /var/ossec 2>/dev/null && [ -d /var/ossec ] && [ "$(ls -A /var/ossec 2>/dev/null)" ]; then
+        fail "/var/ossec contiene archivos pero no está montado. No se tocará."
+    fi
+
+    local rpm_file="wazuh-agent-$WAZUH_VERSION-1.x86_64.rpm"
+    local url="https://packages.wazuh.com/4.x/yum/$rpm_file"
+
+    has curl || fail "curl no está instalado."
+    info="Descargando $rpm_file..."
+    echo "==> $info"
+    curl -fL -o "/tmp/$rpm_file" "$url" || fail "Falló la descarga."
+
+    if has yum; then
+        WAZUH_MANAGER="$MANAGER" WAZUH_REGISTRATION_SERVER="$MANAGER"         WAZUH_REGISTRATION_PASSWORD="$PASSWORD" WAZUH_AGENT_NAME="$AGENT_NAME"         WAZUH_AGENT_GROUP="$GROUP" yum localinstall -y "/tmp/$rpm_file"         || fail "Falló yum."
+    elif has dnf; then
+        WAZUH_MANAGER="$MANAGER" WAZUH_REGISTRATION_SERVER="$MANAGER"         WAZUH_REGISTRATION_PASSWORD="$PASSWORD" WAZUH_AGENT_NAME="$AGENT_NAME"         WAZUH_AGENT_GROUP="$GROUP" dnf install -y "/tmp/$rpm_file"         || fail "Falló dnf."
+    else
+        fail "No existe yum ni dnf."
+    fi
+
+    rm -f "/tmp/$rpm_file"
+    agent_installed || fail "Wazuh Agent no quedó instalado."
+    [ -s /var/ossec/etc/client.keys ] || fail "No se generó client.keys."
+    ok "Wazuh Agent instalado: $(agent_version)"
+}
+
+restart_agent() {
+    if has systemctl; then
+        systemctl enable wazuh-agent >/dev/null 2>&1 || true
+        systemctl restart wazuh-agent || fail "No se pudo reiniciar wazuh-agent."
+        systemctl is-active --quiet wazuh-agent || fail "wazuh-agent no está activo."
+    else
+        chkconfig wazuh-agent on >/dev/null 2>&1 || true
+        service wazuh-agent restart || fail "No se pudo reiniciar wazuh-agent."
+        service wazuh-agent status >/dev/null 2>&1 || fail "No se pudo validar wazuh-agent."
+    fi
+    ok "wazuh-agent activo."
+}
+
+# ---------------------------------------------------------------------------
+# 2. Firewall: firewalld si está activo, si no iptables
+# ---------------------------------------------------------------------------
+
+iptables_rule_exists() {
+    iptables-save 2>/dev/null | grep -F -- '--tcp-flags SYN SYN' |         grep -F -- 'ORANGEBOX-FW:' | grep -F -- 'limit' >/dev/null 2>&1
+}
+
+configure_iptables() {
+    has iptables || fail "iptables no está instalado."
+
+    if iptables_rule_exists; then
+        ok "Regla ORANGEBOX-FW ya existe."
+    else
+        echo "==> Agregando regla ORANGEBOX-FW..."
+        iptables -I INPUT 1 -p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8             -m limit --limit 20/second --limit-burst 40             -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4             || fail "No se pudo agregar la regla iptables."
+        iptables_rule_exists || fail "No se pudo validar la regla iptables."
+        if [ -f /etc/sysconfig/iptables ]; then
+            if has service && service iptables save >/dev/null 2>&1; then
+                ok "Regla iptables persistida."
+            else
+                iptables-save > /etc/sysconfig/iptables || warn "No se pudo persistir iptables."
+            fi
+        else
+            warn "No existe /etc/sysconfig/iptables; no se fuerza persistencia."
+        fi
+        ok "Regla ORANGEBOX-FW instalada."
+    fi
+}
+
+configure_firewalld() {
+    has firewall-cmd || fail "firewalld está activo pero firewall-cmd no existe."
+
+    local r='-p tcp --tcp-flags SYN SYN ! -s 127.0.0.0/8 -m limit --limit 20/second --limit-burst 40 -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4'
+
+    if firewall-cmd --direct --get-all-rules 2>/dev/null | grep -F -- "$r" >/dev/null 2>&1; then
+        ok "Regla ORANGEBOX-FW ya existe en firewalld."
+    else
+        echo "==> Agregando regla ORANGEBOX-FW a firewalld..."
+        firewall-cmd --permanent --direct --add-rule ipv4 filter INPUT 0 "$r"             || fail "No se pudo agregar la regla a firewalld."
+        firewall-cmd --reload || fail "No se pudo recargar firewalld."
+        firewall-cmd --direct --get-all-rules 2>/dev/null | grep -F -- "$r" >/dev/null 2>&1             || fail "No se pudo validar la regla firewalld."
+        ok "Regla ORANGEBOX-FW instalada en firewalld."
+    fi
+}
+
+configure_firewall() {
+    if has firewall-cmd && firewall-cmd --state >/dev/null 2>&1; then
+        ok "firewalld activo."
+        configure_firewalld
+    else
+        ok "firewalld no activo; usando iptables."
+        configure_iptables
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# 3. rsyslog
+# ---------------------------------------------------------------------------
+
+rsyslog_rule_exists() {
+    [ -f /etc/rsyslog.conf ] &&
+    grep -Fq ':msg, contains, "ORANGEBOX-FW:"' /etc/rsyslog.conf &&
+    grep -Fq '/var/log/orangebox-firewall.log' /etc/rsyslog.conf &&
+    grep -Fxq 'stop' /etc/rsyslog.conf
+}
+
+configure_rsyslog() {
+    has rsyslogd || fail "rsyslogd no está instalado."
+
+    touch "$FIREWALL_LOG"
+    chmod 640 "$FIREWALL_LOG"
+    chown root:root "$FIREWALL_LOG"
+
+    if ! rsyslog_rule_exists; then
+        local line
+        line="$(grep -n -E '^\*\.info;mail\.none;authpriv\.none;cron\.none[[:space:]].*/var/log/messages' /etc/rsyslog.conf | head -n1 | cut -d: -f1)"
+        [ -n "$line" ] || fail "No se encontró la regla de /var/log/messages."
+
+        cp -p /etc/rsyslog.conf "/etc/rsyslog.conf.orangebox-backup.$(date +%Y%m%d%H%M%S)"             || fail "No se pudo respaldar rsyslog.conf."
+
+        sed -i "$line"i" -e ':msg, contains, "ORANGEBOX-FW:" -/var/log/orangebox-firewall.log'             -e 'stop' /etc/rsyslog.conf
+    fi
+
+    rsyslog_rule_exists || fail "No se pudo validar la regla rsyslog."
+    rsyslogd -N1 >/dev/null 2>&1 || fail "rsyslogd rechazó la configuración."
+
+    if has systemctl; then
+        systemctl restart rsyslog || fail "No se pudo reiniciar rsyslog."
+    else
+        service rsyslog restart || fail "No se pudo reiniciar rsyslog."
+    fi
+
+    local marker="ORANGEBOX-RSYSLOG-TEST-$(date +%s)"
+    logger -p kern.info "$marker ORANGEBOX-FW: test"
+    sleep 1
+
+    grep -Fq "$marker" "$FIREWALL_LOG" || fail "El test rsyslog no llegó al log dedicado."
+    grep -Fq "$marker" /var/log/messages && fail "El test rsyslog también llegó a messages."
+
+    ok "rsyslog validado."
+}
+
+# ---------------------------------------------------------------------------
+# 4. logrotate
+# ---------------------------------------------------------------------------
+
+configure_logrotate() {
+    has logrotate || fail "logrotate no está instalado."
+
+    cat > "$LOGROTATE_FILE" <<'EOF'
+/var/log/orangebox-firewall.log {
+    daily
+    rotate 0
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
+
+    chmod 644 "$LOGROTATE_FILE"
+    logrotate -d "$LOGROTATE_FILE" >/dev/null 2>&1 || fail "logrotate rechazó la configuración."
+
+    grep -Fq 'daily' "$LOGROTATE_FILE" || fail "Falta daily."
+    grep -Fq 'rotate 0' "$LOGROTATE_FILE" || fail "Falta rotate 0."
+    grep -Fq 'copytruncate' "$LOGROTATE_FILE" || fail "Falta copytruncate."
+
+    ok "logrotate validado."
+}
+
+# ---------------------------------------------------------------------------
+# 5. Ejecución
+# ---------------------------------------------------------------------------
+
+echo
+echo "============================================================"
+echo " OrangeBox - Wazuh Agent / Firewall Logging"
+echo "============================================================"
+
+if agent_installed; then
+    ok "Wazuh Agent ya instalado: $(agent_version)"
 else
-  read -p "Ingresa el nombre del grupo para el agente: " AGENT_GROUP
+    warn "Wazuh Agent no está instalado."
+    install_agent
 fi
 
-# ==========================================
-# 12. Confirmar datos antes de proceder
-# ==========================================
-echo -e "\n${GREEN}=== RESUMEN DE INSTALACIÓN ===${NC}"
-echo "  • Nombre del agente: $AGENT_NAME"
-echo "  • IP del Manager: $MANAGER_IP"
-echo "  • Grupo del agente: $AGENT_GROUP"
-echo "  • Versión del agente: 4.14.5-1.x86_64"
-echo -e "${YELLOW}===============================${NC}"
-read -p "¿Proceder con la instalación? (s/N): " CONFIRMAR_TODO
-if [[ ! "$CONFIRMAR_TODO" =~ ^[Ss]$ ]]; then
-  echo -e "${RED}Instalación cancelada por el usuario.${NC}"
-  exit 0
-fi
+restart_agent
+configure_firewall
+configure_rsyslog
+configure_logrotate
 
-# ==========================================
-# 13. Descargar e instalar el agente Wazuh
-# ==========================================
-echo -e "${YELLOW}==> Descargando e instalando Wazuh agent...${NC}"
-if ! curl -o wazuh-agent-4.14.5-1.x86_64.rpm https://packages.wazuh.com/4.x/yum/wazuh-agent-4.14.5-1.x86_64.rpm 2>/dev/null; then
-  echo -e "${RED}❌ ERROR: Falló la descarga del paquete Wazuh.${NC}"
-  echo -e "${RED}   Verifica la conexión a internet.${NC}"
-  exit 1
-fi
+agent_installed || fail "Verificación final: Wazuh Agent ausente."
+[ -s /var/ossec/etc/client.keys ] || fail "Verificación final: client.keys ausente."
+[ -f "$FIREWALL_LOG" ] || fail "Verificación final: log ausente."
+[ -f "$LOGROTATE_FILE" ] || fail "Verificación final: logrotate ausente."
 
-if ! WAZUH_MANAGER="$MANAGER_IP" WAZUH_AGENT_NAME="$AGENT_NAME" WAZUH_AGENT_GROUP="$AGENT_GROUP" rpm -ihv wazuh-agent-4.14.5-1.x86_64.rpm 2>/dev/null; then
-  echo -e "${RED}❌ ERROR: Falló la instalación del paquete Wazuh.${NC}"
-  echo -e "${RED}   Puede que ya esté instalado o haya conflictos.${NC}"
-  exit 1
-fi
-echo -e "${GREEN}✅ Instalación del agente completada.${NC}"
-
-# ==========================================
-# 14. Habilitar e iniciar el servicio
-# ==========================================
-
-if ! command -v systemctl &>/dev/null; then
-  # Sistema sin systemd (usar SysV init)
-  echo -e "${YELLOW}==> Habilitando e iniciando wazuh-agent con SysV init...${NC}"
-
-  # Habilitar para inicio automático
-  if command -v chkconfig &>/dev/null; then
-    chkconfig wazuh-agent on 2>/dev/null
-  elif command -v update-rc.d &>/dev/null; then
-    update-rc.d wazuh-agent defaults 2>/dev/null
-  fi
-
-  # Iniciar el servicio
-  if ! service wazuh-agent restart 2>/dev/null; then
-    echo -e "${RED}❌ ERROR: No se pudo iniciar el servicio wazuh-agent.${NC}"
-    exit 1
-  fi
-else
-  # Sistema con systemd
-  echo -e "${YELLOW}==> Habilitando e iniciando wazuh-agent...${NC}"
-  if ! systemctl enable --now wazuh-agent 2>/dev/null; then
-    echo -e "${RED}❌ ERROR: No se pudo habilitar/iniciar el servicio wazuh-agent.${NC}"
-    echo -e "${RED}   Revisa los logs con: journalctl -u wazuh-agent${NC}"
-    exit 1
-  fi
-fi
-
-echo -e "${GREEN}✅ Servicio wazuh-agent habilitado e iniciado.${NC}"
-echo -e "${GREEN}🎉 Instalación completada exitosamente.${NC}"
+ok "Configuración OrangeBox completada."
