@@ -38,6 +38,9 @@
     La deteccion de port scan se endurece con different_dstport para evitar
     tratar multiples intentos contra un unico servicio como escaneo de puertos.
 
+    El match de 10450 exige "RES=0x00 SYN URGP=0". Esto evita contar eventos
+    "ACK SYN" como nuevos intentos de conexion.
+
     El firewall debe generar los eventos solamente para trafico que nos
     interese registrar. No habilitar un LOG global de todos los paquetes.
 -->
@@ -58,12 +61,16 @@
         4100:
             Regla base de Wazuh para eventos de firewall.
 
-        SYN:
-            Solo consideramos el primer paquete del handshake TCP.
+        El patron exige:
+            RES=0x00 SYN URGP=0
+
+        Por lo tanto:
+            SYN       -> coincide
+            ACK SYN   -> no coincide
     -->
     <rule id="10450" level="1">
         <if_sid>4100</if_sid>
-        <match>SYN</match>
+        <regex type="pcre2">RES=0x00 SYN URGP=0</regex>
         <description>ORANGEBOX: TCP SYN connection attempt</description>
         <options>no_log</options>
         <group>connection_attempt,</group>
