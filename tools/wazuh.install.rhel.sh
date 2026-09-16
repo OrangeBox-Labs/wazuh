@@ -123,60 +123,60 @@ restart_agent() {
 # 2. Firewall: firewalld si está activo, si no iptables
 # ---------------------------------------------------------------------------
 
-iptables_chain_exists() {
-    iptables -L ORANGEBOX-FW >/dev/null 2>&1
+iptables_input_rule_exists() {
+    iptables -C INPUT         -p tcp --tcp-flags SYN SYN         ! -s 127.0.0.0/8         -j ORANGEBOX-FW >/dev/null 2>&1
+}
+
+iptables_log_rule_exists() {
+    iptables -C ORANGEBOX-FW         -m limit --limit 20/second --limit-burst 40         -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4 >/dev/null 2>&1
+}
+
+iptables_return_rule_exists() {
+    iptables -C ORANGEBOX-FW -j RETURN >/dev/null 2>&1
 }
 
 iptables_config_ok() {
-    iptables_chain_exists || return 1
-
-    iptables -S INPUT 2>/dev/null | grep -F -- '-p tcp --tcp-flags SYN SYN' |         grep -F -- '-j ORANGEBOX-FW' >/dev/null 2>&1 || return 1
-
-    iptables -S ORANGEBOX-FW 2>/dev/null | grep -F -- '-j LOG' |         grep -F -- 'ORANGEBOX-FW: ' | grep -F -- '--limit 20/second' >/dev/null 2>&1 || return 1
-
-    iptables -S ORANGEBOX-FW 2>/dev/null | grep -F -- '-j RETURN' >/dev/null 2>&1
+    iptables_input_rule_exists &&
+    iptables_log_rule_exists &&
+    iptables_return_rule_exists
 }
 
 configure_iptables() {
     has iptables || fail "iptables no está instalado."
 
-    if iptables_config_ok; then
-        ok "Configuración ORANGEBOX-FW de iptables ya existe."
-        return 0
+    if ! iptables -L ORANGEBOX-FW -n >/dev/null 2>&1; then
+        echo "==> Creando cadena ORANGEBOX-FW..."
+        iptables -N ORANGEBOX-FW || fail "No se pudo crear ORANGEBOX-FW."
     fi
 
-    # Detectar una configuración parcial o una versión antigua. No borramos
-    # reglas existentes automáticamente en producción: informamos y detenemos.
-    if iptables_chain_exists; then
-        fail "Existe la cadena ORANGEBOX-FW pero su configuración no coincide con la esperada."
+    if ! iptables_log_rule_exists; then
+        echo "==> Agregando LOG a ORANGEBOX-FW..."
+        iptables -A ORANGEBOX-FW             -m limit --limit 20/second --limit-burst 40             -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4             || fail "No se pudo agregar LOG a ORANGEBOX-FW."
     fi
 
-    if iptables -S INPUT 2>/dev/null | grep -F -- 'ORANGEBOX-FW:' >/dev/null 2>&1; then
-        fail "Existe una regla ORANGEBOX-FW antigua/directa en INPUT. Revísala antes de continuar."
+    if ! iptables_return_rule_exists; then
+        echo "==> Agregando RETURN a ORANGEBOX-FW..."
+        iptables -A ORANGEBOX-FW -j RETURN             || fail "No se pudo agregar RETURN a ORANGEBOX-FW."
     fi
 
-    echo "==> Creando cadena ORANGEBOX-FW..."
-    iptables -N ORANGEBOX-FW || fail "No se pudo crear la cadena ORANGEBOX-FW."
+    if ! iptables_input_rule_exists; then
+        echo "==> Conectando INPUT con ORANGEBOX-FW..."
+        iptables -I INPUT 1             -p tcp --tcp-flags SYN SYN             ! -s 127.0.0.0/8             -j ORANGEBOX-FW             || fail "No se pudo conectar INPUT con ORANGEBOX-FW."
+    fi
 
-    iptables -A ORANGEBOX-FW         -m limit --limit 20/second --limit-burst 40         -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4         || fail "No se pudo agregar LOG a la cadena ORANGEBOX-FW."
-
-    iptables -A ORANGEBOX-FW -j RETURN         || fail "No se pudo agregar RETURN a la cadena ORANGEBOX-FW."
-
-    iptables -I INPUT 1         -p tcp --tcp-flags SYN SYN         ! -s 127.0.0.0/8         -j ORANGEBOX-FW         || fail "No se pudo conectar INPUT con ORANGEBOX-FW."
-
-    iptables_config_ok || fail "La validación de la cadena ORANGEBOX-FW falló."
+    iptables_config_ok || fail "La configuración ORANGEBOX-FW no quedó completa o correcta."
 
     if [ -f /etc/sysconfig/iptables ]; then
         if has service && service iptables save >/dev/null 2>&1; then
             ok "Configuración iptables persistida."
         else
-            iptables-save > /etc/sysconfig/iptables || warn "No se pudo persistir iptables."
+            iptables-save > /etc/sysconfig/iptables                 || warn "No se pudo persistir la configuración iptables."
         fi
     else
         warn "No existe /etc/sysconfig/iptables; no se fuerza persistencia."
     fi
 
-    ok "Cadena ORANGEBOX-FW instalada."
+    ok "Configuración ORANGEBOX-FW de iptables validada."
 }
 
 configure_firewalld() {
