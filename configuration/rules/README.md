@@ -17,7 +17,7 @@ No se crean reglas simplemente porque exista un evento nativo. Primero se identi
 
 Cuando una regla nativa ya entrega una señal útil, OrangeBox normalmente construye una regla hija mediante `if_sid`, en vez de duplicar el decoder o volver a analizar el log desde cero.
 
-Las correlaciones utilizan condiciones como `if_matched_sid` y `same_source_ip` cuando necesitamos relacionar eventos anteriores con el evento actual.
+Las correlaciones utilizan condiciones como `if_matched_sid` y `same_srcip` cuando necesitamos relacionar eventos anteriores con el evento actual.
 
 ## Archivos
 
@@ -38,6 +38,17 @@ Detecciones sobre ejecutables o scripts creados en ubicaciones temporales o de a
 ### `orangebox-web.xml`
 
 Detecciones HTTP/Apache orientadas a reconocimiento, autenticación web y abuso de recursos sensibles.
+
+### `orangebox-firewall.xml`
+
+Detecciones de actividad de red a partir del decoder nativo `kernel` de Wazuh.
+
+Incluye:
+
+- `10450`: evento de soporte para un TCP SYN entrante. Usa nivel 1 + `no_log`, por lo que participa en correlaciones sin generar una alerta por cada paquete.
+- `10453`: correlación de 12 SYN en 90 segundos desde la misma IP hacia puertos destino diferentes, utilizada para detectar posible escaneo TCP de puertos.
+
+La regla `10453` conserva la lógica de frecuencia de la regla nativa de Wazuh `40601`, pero utiliza `if_matched_sid 10450` y `different_dstport` para hacer la detección más específica.
 
 ### Firmas YARA
 
