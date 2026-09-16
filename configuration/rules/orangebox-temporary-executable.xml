@@ -21,6 +21,18 @@
         - extensión
         - contenido
 
+    EXCEPCION OPERACIONAL
+    ---------------------
+    dracut construye initramfs temporalmente bajo /var/tmp/dracut.*.
+    Estos árboles contienen ejecutables, librerías, scripts y enlaces
+    con permisos que pueden disparar esta detección de forma masiva.
+
+    Por lo tanto, se excluyen exclusivamente las rutas:
+
+        /var/tmp/dracut.*
+
+    El resto de /var/tmp/ continúa siendo monitoreado normalmente.
+
     Se utiliza exclusivamente Wazuh FIM nativo.
 
     Eventos FIM:
@@ -60,12 +72,13 @@
             554 -> File added
             10410 -> nuestra alerta
 
-        El patrón de permisos es el que ya probamos exitosamente.
+        Se excluyen únicamente los árboles temporales generados por
+        dracut bajo /var/tmp/dracut.*.
     -->
 
     <rule id="10410" level="15">
         <if_sid>554</if_sid>
-        <field name="file" type="pcre2">^/tmp/|^/var/tmp/|^/dev/shm/</field>
+        <field name="file" type="pcre2">^/(?:tmp|dev/shm)/|^/var/tmp/(?!dracut\.)</field>
         <field name="perm" type="pcre2">\w\wx</field>
         <description>
             ORANGEBOX: Executable file created in temporary directory.
@@ -95,6 +108,9 @@
         Esta regla solamente se activa cuando el nuevo permiso contiene
         ejecución.
 
+        Se excluyen únicamente los árboles temporales generados por
+        dracut bajo /var/tmp/dracut.*.
+
         Posiciones de ejecución:
 
             rwx------   -> owner
@@ -114,7 +130,7 @@
 
     <rule id="10432" level="15">
         <if_sid>550</if_sid>
-        <field name="file" type="pcre2">^/tmp/|^/var/tmp/|^/dev/shm/</field>
+        <field name="file" type="pcre2">^/(?:tmp|dev/shm)/|^/var/tmp/(?!dracut\.)</field>
         <field name="changed_fields">^permission$</field>
         <field name="perm" type="pcre2">^(?=.*[xst])[r-][w-][xst-][r-][w-][xst-][r-][w-][xst-]$</field>
         <description>
