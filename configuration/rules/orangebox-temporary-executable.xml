@@ -71,16 +71,11 @@
 
             554 -> File added
             10410 -> nuestra alerta
-
-        La exclusión de dracut se implementa mediante un segundo
-        requisito <field> negado. Los campos dentro de una misma regla
-        se evalúan como AND.
     -->
 
     <rule id="10410" level="15">
         <if_sid>554</if_sid>
         <field name="file" type="pcre2">^/tmp/|^/var/tmp/|^/dev/shm/</field>
-        <field name="file" type="pcre2" negate="yes">^/var/tmp/dracut\.</field>
         <field name="perm" type="pcre2">\w\wx</field>
         <description>
             ORANGEBOX: Executable file created in temporary directory.
@@ -110,9 +105,6 @@
         Esta regla solamente se activa cuando el nuevo permiso contiene
         ejecución.
 
-        La exclusión de dracut se implementa mediante un segundo
-        requisito <field> negado.
-
         Posiciones de ejecución:
 
             rwx------   -> owner
@@ -133,7 +125,6 @@
     <rule id="10432" level="15">
         <if_sid>550</if_sid>
         <field name="file" type="pcre2">^/tmp/|^/var/tmp/|^/dev/shm/</field>
-        <field name="file" type="pcre2" negate="yes">^/var/tmp/dracut\.</field>
         <field name="changed_fields">^permission$</field>
         <field name="perm" type="pcre2">^(?=.*[xst])[r-][w-][xst-][r-][w-][xst-][r-][w-][xst-]$</field>
         <description>
@@ -148,33 +139,44 @@
 
 
 <!-- =================================================================
-     EXCEPCIONES / WHITELIST - ESTA SECCION SIEMPRE VA AL FINAL
+     EXCEPCIONES / WHITELIST
      =================================================================
 
-     Actualmente no existen excepciones autorizadas.
+     Las excepciones se mantienen al final del archivo y utilizan IDs
+     entre 20000 y 29999.
 
-     Cuando sea necesario agregar una excepcion, debe utilizar un ID
-     entre 20000 y 29999 y referenciar explicitamente la regla OrangeBox
-     correspondiente mediante <if_sid>.
+     20040 - EXCEPCION DRACUT
+     ------------------------
+     dracut genera árboles temporales bajo /var/tmp/dracut.* durante
+     la construcción de initramfs. Los archivos de esos árboles pueden
+     aparecer ya con permisos de ejecución o recibir cambios de permiso,
+     generando ruido masivo en FIM.
+
+     La excepción está limitada al prefijo /var/tmp/dracut. y solamente
+     descarta eventos que ya hayan sido identificados por 10410 o 10432.
+
+     El resto de /tmp, /var/tmp y /dev/shm continúa bajo detección normal.
 
      IMPORTANTE:
-         - No agregar excepciones sin validar previamente el binario,
-           su origen y su necesidad operacional.
-         - Las excepciones deben ser lo mas especificas posible.
-         - Esta seccion debe permanecer despues de TODAS las reglas de deteccion.
-         - No crear un <group> vacio: si no hay excepciones, esta seccion
-           permanece solamente como documentacion/comentarios.
+         - No se excluye /var/tmp completo.
+         - No se excluyen otros procesos de construcción de initramfs.
+         - La excepción se limita exclusivamente a dracut.*.
      ================================================================= -->
 
-<!--
-    WHITELIST ACTUAL: ninguna.
+<rule id="20040" level="0">
+    <if_sid>10410</if_sid>
+    <field name="file" type="pcre2">^/var/tmp/dracut\.</field>
+    <description>
+        EXCEPCION ORANGEBOX: archivo ejecutable generado por dracut.
+    </description>
+    <group>orangebox_exception,orangebox_whitelist,</group>
+</rule>
 
-    Ejemplo de estructura para una futura excepcion:
-
-    <rule id="20040" level="3">
-        <if_sid>10410</if_sid>
-        <field name="file">^/ruta/validada$</field>
-        <description>EXCEPCION: Ejecutable temporal autorizado y validado.</description>
-        <group>orangebox_exception,orangebox_whitelist,</group>
-    </rule>
--->
+<rule id="20041" level="0">
+    <if_sid>10432</if_sid>
+    <field name="file" type="pcre2">^/var/tmp/dracut\.</field>
+    <description>
+        EXCEPCION ORANGEBOX: cambio de permisos generado por dracut.
+    </description>
+    <group>orangebox_exception,orangebox_whitelist,</group>
+</rule>
