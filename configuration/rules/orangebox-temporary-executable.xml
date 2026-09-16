@@ -72,13 +72,15 @@
             554 -> File added
             10410 -> nuestra alerta
 
-        Se excluyen únicamente los árboles temporales generados por
-        dracut bajo /var/tmp/dracut.*.
+        La exclusión de dracut se implementa mediante un segundo
+        requisito <field> negado. Los campos dentro de una misma regla
+        se evalúan como AND.
     -->
 
     <rule id="10410" level="15">
         <if_sid>554</if_sid>
-        <field name="file" type="pcre2">^/(?:tmp|dev/shm)/|^/var/tmp/(?!dracut\.)</field>
+        <field name="file" type="pcre2">^/tmp/|^/var/tmp/|^/dev/shm/</field>
+        <field name="file" type="pcre2" negate="yes">^/var/tmp/dracut\.</field>
         <field name="perm" type="pcre2">\w\wx</field>
         <description>
             ORANGEBOX: Executable file created in temporary directory.
@@ -108,8 +110,8 @@
         Esta regla solamente se activa cuando el nuevo permiso contiene
         ejecución.
 
-        Se excluyen únicamente los árboles temporales generados por
-        dracut bajo /var/tmp/dracut.*.
+        La exclusión de dracut se implementa mediante un segundo
+        requisito <field> negado.
 
         Posiciones de ejecución:
 
@@ -130,7 +132,8 @@
 
     <rule id="10432" level="15">
         <if_sid>550</if_sid>
-        <field name="file" type="pcre2">^/(?:tmp|dev/shm)/|^/var/tmp/(?!dracut\.)</field>
+        <field name="file" type="pcre2">^/tmp/|^/var/tmp/|^/dev/shm/</field>
+        <field name="file" type="pcre2" negate="yes">^/var/tmp/dracut\.</field>
         <field name="changed_fields">^permission$</field>
         <field name="perm" type="pcre2">^(?=.*[xst])[r-][w-][xst-][r-][w-][xst-][r-][w-][xst-]$</field>
         <description>
