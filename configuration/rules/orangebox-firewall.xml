@@ -1,0 +1,96 @@
+<!--
+    ORANGEBOX - Deteccion de actividad de reconocimiento de red
+    ============================================================
+
+    Objetivo
+    --------
+    Utilizar el decoder "kernel" de Wazuh para identificar intentos TCP
+    entrantes y correlacionarlos como posible escaneo de puertos.
+
+    Flujo
+    -----
+        firewall LOG
+            |
+            v
+        regla nativa 4100
+            |
+            v
+        10450 - TCP SYN / connection_attempt
+            |
+            v
+        10453 - misma IP origen + puertos destino diferentes
+                  12 eventos en 90 segundos
+
+    Importante
+    ----------
+    10450 tiene nivel 1 + no_log.
+
+    No genera alertas visibles ni llena alerts.json, pero permanece
+    disponible para correlaciones posteriores mediante if_matched_sid.
+
+    Esto permite alimentar 10453 sin convertir cada SYN en una alerta.
+
+    La correlacion utiliza if_matched_sid en lugar de if_matched_group
+    porque las pruebas sobre la instalacion Wazuh de OrangeBox demostraron
+    que same_srcip funciona correctamente cuando se referencia directamente
+    el SID 10450.
+
+    La deteccion de port scan se endurece con different_dstport para evitar
+    tratar multiples intentos contra un unico servicio como escaneo de puertos.
+
+    El firewall debe generar los eventos solamente para trafico que nos
+    interese registrar. No habilitar un LOG global de todos los paquetes.
+-->
+
+<group name="orangebox,firewall,network_scan,">
+
+    <!--
+        10450 - INTENTO TCP SYN
+
+        Regla de soporte para correlaciones.
+
+        level=1:
+            Permite que la regla participe en if_matched_sid.
+
+        no_log:
+            Evita generar una alerta por cada SYN.
+
+        4100:
+            Regla base de Wazuh para eventos de firewall.
+
+        SYN:
+            Solo consideramos el primer paquete del handshake TCP.
+    -->
+    <rule id="10450" level="1">
+        <if_sid>4100</if_sid>
+        <match>SYN</match>
+        <description>ORANGEBOX: TCP SYN connection attempt</description>
+        <options>no_log</options>
+        <group>connection_attempt,</group>
+    </rule>
+
+    <!--
+        10453 - POSIBLE ESCANEO DE PUERTOS
+
+        12 intentos TCP SYN en 90 segundos
+        +
+        misma IP origen
+        +
+        diferentes puertos destino
+
+        El umbral conserva la idea de la regla nativa de Wazuh 40601,
+        pero hace la correlacion desde nuestro SID 10450 y agrega
+        diversidad de puerto destino.
+    -->
+    <rule id="10453" level="10" frequency="12" timeframe="90" ignore="90">
+        <if_matched_sid>10450</if_matched_sid>
+        <same_srcip />
+        <different_dstport />
+        <description>ORANGEBOX: Possible TCP port scan from same source IP.</description>
+        <mitre>
+            <id>T1046</id>
+        </mitre>
+        <group>orangebox,firewall,network_scan,</group>
+    </rule>
+
+</group>
