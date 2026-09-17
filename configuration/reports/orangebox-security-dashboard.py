@@ -204,6 +204,10 @@ def dashboard_html(report, summary, group, start, end, label, lang="es"):
     top_rules = rule_rows(categories, 12)
     mitre_rows = report.mitre_rows(summary)
     firewall_attempts = sum(row["attempts"] for row in firewall_rows)
+    firewall_table_rows = [
+        (f"{row['agent_name']} · Regla {row['rule_id']} · {row['description']}", len(row['ips']))
+        for row in firewall_rows
+    ]
 
     html_doc = f"""<!doctype html>
 <html lang="{'en' if lang == 'en' else 'es'}">
@@ -262,7 +266,7 @@ def dashboard_html(report, summary, group, start, end, label, lang="es"):
   <div class="section firewall">
     {section_title('Bloqueos automáticos', 'Eventos de Active Response firewall-drop registrados por el reporte clásico.', '🛡️')}
     {f'<div class="metric">{fmt_number(len(firewall_ips))}</div><div class="metric-note">IPs bloqueadas automáticamente · {fmt_number(firewall_attempts)} intentos asociados</div>' if firewall_ips else '<div class="good">No se registraron bloqueos automáticos con una IP de origen válida.</div>'}
-    {table([(f"{row[\'agent_name\']} · Regla {row[\'rule_id\']} · {row[\'description\']}", len(row[\'ips\'])) for row in firewall_rows], 'Sistema / regla', 'IPs bloqueadas') if firewall_rows else ''}
+    {table(firewall_table_rows, 'Sistema / regla', 'IPs bloqueadas') if firewall_rows else ''}
   </div>
 
   <div class="footer">OrangeBox IT Services · Dashboard generado {esc(now)} · Datos extraídos desde Wazuh</div>
