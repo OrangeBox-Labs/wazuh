@@ -88,8 +88,12 @@
         El umbral conserva la idea de la regla nativa de Wazuh 40601,
         pero hace la correlacion desde nuestro SID 10450 y agrega
         diversidad de puerto destino.
+
+        level=12:
+            Permite que la integracion de correo OrangeBox, configurada
+            desde nivel 12, envie esta deteccion inmediatamente.
     -->
-    <rule id="10453" level="10" frequency="12" timeframe="90" ignore="90">
+    <rule id="10453" level="12" frequency="12" timeframe="90" ignore="90">
         <if_matched_sid>10450</if_matched_sid>
         <same_srcip />
         <different_dstport />
