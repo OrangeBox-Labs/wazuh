@@ -10,14 +10,15 @@ IMPORTANTE:
 - Mantiene los mismos períodos, grupos de agentes y filtros del reporte existente.
 
 Uso:
-  ./orangebox-security-dashboard.py --yesterday --group production
-  ./orangebox-security-dashboard.py --lastweek --group all --send
-  ./orangebox-security-dashboard.py --thismonth --group clientes --output /tmp/dashboard.html
+  ./orangebox-security-dashboard.py --yesterday --group production --email soporte@orangebox.cl
+  ./orangebox-security-dashboard.py --lastweek --group all --email soporte@orangebox.cl --email cliente@example.com
+  ./orangebox-security-dashboard.py --thismonth --group clientes --email soporte@orangebox.cl,cliente@example.com --output /tmp/dashboard.html
 """
 
 import argparse
 import html
 import importlib.util
+import re
 import smtplib
 from collections import Counter
 from datetime import datetime
@@ -269,13 +270,21 @@ def parser():
     p.add_argument("--lang", choices=["es", "en"], default="es")
     p.add_argument("--output", help="Archivo HTML de salida")
     p.add_argument("--archive", action="store_true", help="Guardar también en /var/ossec/reports/archive")
-    p.add_argument("--send", action="store_true", help="Enviar por SMTP")
-    p.add_argument("--to", help="Destinatario del dashboard")
+    p.add_argument("--email", action="append", required=True, help="Destinatario. Puede repetirse o contener varias direcciones separadas por comas.")
     return p.parse_args()
 
 
 def main():
     args = parser()
+    recipients = []
+    for value in args.email:
+        recipients.extend(r.strip() for r in value.split(",") if r.strip())
+    if not recipients:
+        raise SystemExit("Debe especificar al menos un destinatario")
+    for recipient in recipients:
+        if not re.fullmatch(r"[^\s@]+@[^\s@]+", recipient):
+            raise SystemExit(f"Dirección de correo inválida: {recipient}")
+
     report = load_report_module()
     mode = args.date and f"date:{args.date}" or next(
         name for name in (
@@ -305,25 +314,32 @@ def main():
         archive_path.write_text(body, encoding="utf-8")
         print(f"Archivado: {archive_path}")
 
-    if args.send:
-        recipient = args.to
-        if not recipient:
-            raise SystemExit("--send requiere --to DESTINATARIO")
-        subject_prefix = {
-            "today": "Dashboard Diario de Seguridad",
-            "yesterday": "Dashboard Diario de Seguridad",
-            "thisweek": "Dashboard Semanal de Seguridad",
-            "lastweek": "Dashboard Semanal de Seguridad",
-            "thismonth": "Dashboard Mensual de Seguridad",
-            "lastmonth": "Dashboard Mensual de Seguridad",
-            "thisyear": "Dashboard Anual de Seguridad",
-            "lastyear": "Dashboard Anual de Seguridad",
-        }
-        subject = f"📊 [ORANGEBOX] {subject_prefix.get(mode, 'Dashboard de Seguridad')} — {args.group}"
-        send_email(subject, body, recipient)
-        print(f"Enviado a: {recipient}")
+    subject_prefix = {
+        "today": "Dashboard Diario de Seguridad",
+        "yesterday": "Dashboard Diario de Seguridad",
+        "thisweek": "Dashboard Semanal de Seguridad",
+        "lastweek": "Dashboard Semanal de Seguridad",
+        "thismonth": "Dashboard Mensual de Seguridad",
+        "lastmonth": "Dashboard Mensual de Seguridad",
+        "thisyear": "Dashboard Anual de Seguridad",
+        "lastyear": "Dashboard Anual de Seguridad",
+    }
+    subject = f"📊 [ORANGEBOX] {subject_prefix.get(mode, 'Dashboard de Seguridad')} — {args.group}"
+    sent = []
+    failed = []
+    for recipient in recipients:
+        try:
+            send_email(subject, body, recipient)
+            sent.append(recipient)
+        except Exception as exc:
+            failed.append((recipient, exc))
 
+    print(f"Destinatarios enviados: {', '.join(sent) if sent else 'ninguno'}")
+    for recipient, exc in failed:
+        print(f"ERROR enviando a {recipient}: {exc}")
     print(f"Dashboard generado: {output}")
+    if failed:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
