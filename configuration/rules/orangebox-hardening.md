@@ -59,9 +59,30 @@ Por eso:
 - `10046` alerta cuando uno de esos archivos es modificado (`550`);
 - `10047` alerta cuando es eliminado (`553`).
 
-Ambas son nivel 15 y pertenecen a `privilege_escalation_root` para que la integración de correo las trate como críticas.
+La misma política se aplica a los componentes equivalentes bajo:
+
+- `/opt/zimbra`;
+- `/opt/zextras` para Carbonio CE.
+
+Ambas reglas son nivel 15 y pertenecen a `privilege_escalation_root` para que la integración de correo las trate como críticas.
 
 La lista debe mantenerse sincronizada con la whitelist de comandos de `10005`.
+
+### 10048–10049 — Persistencia de credenciales SSH
+
+Estas reglas vigilan `authorized_keys` bajo:
+
+```text
+/root/.ssh/authorized_keys
+/home/<usuario>/.ssh/authorized_keys
+```
+
+El agente monitoriza los directorios `.ssh` con `whodata="yes"` y sin `report_changes`, por lo que podemos conservar la atribución de usuario/proceso sin mandar el contenido de las claves en el diff.
+
+- `10048` detecta modificación de `authorized_keys` (`550`);
+- `10049` detecta eliminación de `authorized_keys` (`553`).
+
+El objetivo no es asumir que toda modificación es maliciosa. Una clave puede cambiar legítimamente. La regla existe para que ese cambio quede claramente identificado como un evento de persistencia de credenciales y pueda correlacionarse con el contexto de autenticación correspondiente.
 
 ## Eliminaciones
 
@@ -81,6 +102,8 @@ Cuando realmente sea necesaria una excepción, debe usar un ID `20000–29999`, 
 
 El cambio relevante es el archivo y su contenido, no quién lo modificó. Filtrar por UID o proceso podría ocultar una modificación maliciosa realizada desde una cuenta o proceso comprometido.
 
+Who-Data se utiliza justamente para **observar y atribuir**, no para convertir el origen en una whitelist.
+
 ### FIM primero, regla después
 
 Estas reglas aprovechan los eventos nativos `550` y `553`. No se crea otro mecanismo paralelo para vigilar los mismos archivos.
@@ -90,5 +113,6 @@ Estas reglas aprovechan los eventos nativos `550` y `553`. No se crea otro mecan
 - Wazuh FIM/syscheck.
 - Evento `550`: archivo modificado.
 - Evento `553`: archivo eliminado.
+- Who-Data para las rutas críticas configuradas en `agent.conf`.
 
-Si cambia el formato de `changed_content` en una futura versión de Wazuh, `10038` debe volver a probarse.
+Si cambia el formato de los eventos FIM en una futura versión de Wazuh, estas reglas deben volver a probarse.
