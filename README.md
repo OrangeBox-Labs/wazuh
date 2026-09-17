@@ -32,6 +32,9 @@ wazuh/
 │   │   ├── README.md
 │   │   ├── ossec.conf
 │   │   └── ossec.md
+│   ├── reports/
+│   │   ├── orangebox-security-report.py
+│   │   └── orangebox-security-report.md
 │   ├── rules/
 │   │   ├── README.md
 │   │   ├── *.xml
@@ -50,9 +53,10 @@ wazuh/
 
 Componentes que forman parte de la arquitectura Wazuh.
 
-- **`agents/`** — configuración distribuida de agentes, principalmente FIM y monitoreo de integridad.
+- **`agents/`** — configuración distribuida de agentes, principalmente FIM, Who-Data y monitoreo de integridad.
 - **`integrations/`** — integraciones propias, como el correo HTML de OrangeBox.
 - **`manager/`** — configuración global del Wazuh Manager.
+- **`reports/`** — generación de reportes periódicos a partir de las alertas almacenadas.
 - **`rules/`** — reglas de detección/correlación y firmas YARA.
 - **`scripts/`** — espacio reservado para automatizaciones auxiliares relacionadas con la configuración u operación.
 
@@ -67,18 +71,7 @@ Actualmente incluye:
 - **`wazuh.install.rhel.sh`** — instalador interactivo del agente Wazuh para sistemas RHEL/CentOS, incluyendo la preparación de `/var/ossec` en un volumen separado cuando corresponde.
 - **`wazuh.install.rhel.md`** — documentación del instalador y de sus decisiones actuales.
 
-### Estado especial del instalador
-
-El instalador actual está documentado **tal como funciona hoy** y no debe interpretarse como la arquitectura definitiva de despliegue.
-
-Existe un rediseño pendiente para incorporar la configuración necesaria para recolectar logs de firewall y soportar correctamente futuras detecciones de:
-
-- `firewall-drop`;
-- escaneo de puertos;
-- DDoS;
-- registro y trazabilidad de acciones de Active Response.
-
-Ese rediseño se hará como una etapa independiente, después de definir y probar las nuevas reglas.
+El instalador también prepara el logging de firewall de OrangeBox de forma idempotente según la generación de Enterprise Linux: EL6 utiliza rsyslog + logrotate y EL7+ utiliza journald.
 
 ## Reglas OrangeBox
 
@@ -89,7 +82,8 @@ La arquitectura actual incluye detecciones para:
 - autenticación SSH, SUDO y SU;
 - fuerza bruta y correlación de login exitoso;
 - cambios críticos de configuración;
-- firewall;
+- firewall y reconocimiento de red;
+- escaneo TCP, SYN flood y posible DoS distribuido;
 - ataques y reconocimiento web;
 - archivos temporales y ejecutables sospechosos;
 - webshells y malware mediante FIM + YARA.
@@ -113,6 +107,8 @@ alerta
 ```
 
 La integración de correo conserva evidencia FIM, agrupa alertas no inmediatas y aplica deduplicación específica para determinados eventos SSH.
+
+Las reglas pertenecientes al grupo `privilege_escalation_root` se consideran alertas inmediatas y no esperan la ventana de agrupación.
 
 ## Seguridad del repositorio
 
