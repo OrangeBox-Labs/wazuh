@@ -228,7 +228,7 @@ Se requieren 80 IPs origen diferentes en 10 segundos hacia el mismo puerto desti
 
 No se aplica Active Response automáticamente a `10455`, porque un evento individual no identifica una única IP que represente al conjunto del ataque.
 
-Los elementos `same_srcip`, `different_srcip` y `same_dstport` son filtros de correlación soportados por Wazuh y se usan junto con `frequency` y `timeframe`. citeturn169742search0
+Los elementos `same_srcip`, `different_srcip` y `same_dstport` son filtros de correlación soportados por Wazuh y se usan junto con `frequency` y `timeframe`. 
 
 Los umbrales son valores iniciales de OrangeBox y deben validarse contra el comportamiento real de cada servidor antes de endurecer la respuesta automática.
 
@@ -273,7 +273,13 @@ El registro de agentes utiliza el puerto `1515` y requiere password.
 
 Se definen suites criptográficas explícitas, pero **no se documenta esto como "TLS 1.3 obligatorio"**. La compatibilidad real depende de la versión de Wazuh/OpenSSL.
 
-La verificación de hostname del certificado está desactivada actualmente y queda como pendiente de revisar junto con la PKI real de agentes.
+`ssl_verify_host=no` se mantiene deliberadamente.
+
+En Wazuh, esta opción valida el host de origen del agente contra el nombre/IP presente en su certificado y **solo entra en juego cuando se configura una CA para verificar certificados de agentes mediante `ssl_agent_ca`**. Activarla no es un endurecimiento genérico del TLS: forma parte de una arquitectura distinta de enrolamiento basada en certificados por agente.
+
+Nuestra configuración actual utiliza enrolamiento mediante password compartida y no define `ssl_agent_ca`. Por eso no se cambia `ssl_verify_host` de forma aislada: hacerlo no implementaría una validación de identidad coherente y podría romper agentes cuando posteriormente se introduzca validación por certificado sin haber preparado la PKI correspondiente.
+
+Cuando se diseñe esa etapa, debe implementarse completa: CA, certificados de agente, claves en los endpoints y validación de hostname/IP coherente con la identidad real de cada agente.
 
 ## 21. Cluster
 
