@@ -149,7 +149,7 @@
     -->
     <rule id="10046" level="15">
         <if_sid>550</if_sid>
-        <field name="file">^/opt/(?:zimbra|zextras)/(?:libexec/zmstat-fd|common/sbin/postfix|common/sbin/postalias|common/sbin/qshape\.pl|common/sbin/postconf|common/sbin/postsuper|common/sbin/postcat|libexec/zmqstat|libexec/zmmtastatus|libexec/zmmailboxdmgr)$</field>
+        <field name="file" type="pcre2">^/opt/(?:zimbra|zextras)/(?:libexec/zmstat-fd|common/sbin/postfix|common/sbin/postalias|common/sbin/qshape\.pl|common/sbin/postconf|common/sbin/postsuper|common/sbin/postcat|libexec/zmqstat|libexec/zmmtastatus|libexec/zmmailboxdmgr)$</field>
         <description>ALERTA CRITICA: Comando autorizado para SUDO -> ROOT fue modificado.</description>
         <group>sudo,privilege_escalation,privilege_escalation_root,integrity,orangebox_sudo_command_integrity,</group>
     </rule>
@@ -231,7 +231,7 @@
     <!-- Eliminacion de un comando autorizado para SUDO -> ROOT. -->
     <rule id="10047" level="15">
         <if_sid>553</if_sid>
-        <field name="file">^/opt/(?:zimbra|zextras)/(?:libexec/zmstat-fd|common/sbin/postfix|common/sbin/postalias|common/sbin/qshape\.pl|common/sbin/postconf|common/sbin/postsuper|common/sbin/postcat|libexec/zmqstat|libexec/zmmtastatus|libexec/zmmailboxdmgr)$</field>
+        <field name="file" type="pcre2">^/opt/(?:zimbra|zextras)/(?:libexec/zmstat-fd|common/sbin/postfix|common/sbin/postalias|common/sbin/qshape\.pl|common/sbin/postconf|common/sbin/postsuper|common/sbin/postcat|libexec/zmqstat|libexec/zmmtastatus|libexec/zmmailboxdmgr)$</field>
         <description>ALERTA CRITICA: Comando autorizado para SUDO -> ROOT fue eliminado.</description>
         <group>sudo,privilege_escalation,privilege_escalation_root,integrity,orangebox_sudo_command_integrity,</group>
     </rule>
