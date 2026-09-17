@@ -11,11 +11,42 @@ Objetivo:
 
 Para sistemas sin systemd utiliza SysV init.
 
+## Backend de logging
+
+El script detecta la versión major de Enterprise Linux y selecciona el backend correspondiente:
+
+### EL6
+
+```text
+iptables -> rsyslog -> /var/log/orangebox-firewall.log -> Wazuh
+```
+
+En EL6 se configuran:
+
+- rsyslog;
+- `/var/log/orangebox-firewall.log`;
+- filtro exclusivo para `ORANGEBOX-FW:`;
+- logrotate en `/etc/logrotate.d/orangebox-firewall`.
+
+El script valida que el evento de prueba llegue al log dedicado y no a `/var/log/messages`.
+
+### EL7+
+
+```text
+iptables -> journald -> Wazuh
+```
+
+En EL7 y superiores no se modifica la configuración de rsyslog ni se crea el log dedicado de OrangeBox.
+
+El script valida que journald esté disponible y que un evento de prueba con el prefijo `ORANGEBOX-FW:` quede registrado.
+
+Esto evita duplicar la cadena de logging en sistemas modernos, donde el agente Wazuh puede consumir journald.
+
 ## Principio
 
 El script se puede ejecutar repetidamente:
 
-- Si Wazuh Agent ya existe, no reinstala ni toca /var/ossec.
+- Si Wazuh Agent ya existe, no reinstala ni toca `/var/ossec`.
 - Si falta un componente, lo agrega.
 - Si ya existe y está correcto, lo conserva.
 - Si encuentra un estado inesperado, informa y termina.
@@ -26,7 +57,7 @@ El script se puede ejecutar repetidamente:
 Valores iniciales:
 
 ```text
-Manager : 192.168.200.160
+Manager : wazuh.orangebox.cl
 Grupo   : OrangeBox
 Nombre  : $HOSTNAME
 ```
@@ -41,7 +72,7 @@ WAZUH_REGISTRATION_PASSWORD='PASSWORD' ./wazuh.install.rhel.sh
 
 o introducirse de forma interactiva. Nunca se muestra.
 
-La instalación usa las variables de despliegue documentadas por Wazuh, incluyendo `WAZUH_MANAGER`, `WAZUH_REGISTRATION_SERVER`, `WAZUH_REGISTRATION_PASSWORD`, `WAZUH_AGENT_NAME` y `WAZUH_AGENT_GROUP`. citeturn519500search1turn519500search4
+La instalación usa las variables de despliegue documentadas por Wazuh, incluyendo `WAZUH_MANAGER`, `WAZUH_REGISTRATION_SERVER`, `WAZUH_REGISTRATION_PASSWORD`, `WAZUH_AGENT_NAME` y `WAZUH_AGENT_GROUP`.
 
 Después se comprueba:
 
@@ -49,7 +80,7 @@ Después se comprueba:
 - `client.keys`;
 - servicio activo.
 
-## /var/ossec
+## `/var/ossec`
 
 La funcionalidad histórica de crear un LV de 100 MB se mantiene en el flujo de instalación nueva.
 
@@ -73,34 +104,27 @@ Si firewalld no está activo:
 - aplica limitación de 20 eventos/s y burst 40;
 - intenta persistir en `/etc/sysconfig/iptables`.
 
-La regla solamente registra; no bloquea.
+La regla solamente registra; no bloquea por sí misma.
 
-## rsyslog
+Las reglas Wazuh asociadas realizan la correlación y, cuando corresponde, pueden ejecutar `firewall-drop`.
 
-Se utiliza el prefijo:
+## rsyslog y logrotate
+
+Estos componentes se configuran **solo en EL6**.
+
+Prefijo:
 
 ```text
 ORANGEBOX-FW:
 ```
 
-y el archivo:
+Archivo:
 
 ```text
 /var/log/orangebox-firewall.log
 ```
 
-El filtro se inserta antes de la regla estándar de `/var/log/messages`.
-
-El script realiza un test con `logger` y exige:
-
-- evento presente en el log dedicado;
-- evento ausente de `messages`.
-
-Se usa sintaxis clásica de rsyslog para mantener compatibilidad con CentOS antiguos.
-
-## logrotate
-
-Archivo:
+Logrotate:
 
 ```text
 /etc/logrotate.d/orangebox-firewall
@@ -118,13 +142,23 @@ copytruncate
 
 No se conservan logs rotados.
 
+## Journald
+
+En EL7+ el script no agrega reglas de rsyslog ni crea archivos auxiliares para OrangeBox.
+
+La fuente del evento es el mensaje `ORANGEBOX-FW:` generado por el kernel/iptables y registrado directamente en journald.
+
 ## Wazuh y la detección de red
 
-El agente consume:
+El agente mantiene la entrada histórica para:
 
 ```text
 /var/log/orangebox-firewall.log
 ```
+
+para compatibilidad con EL6.
+
+En EL7+ la detección se realiza mediante journald, que es la fuente utilizada por la configuración del agente en sistemas modernos.
 
 Las reglas OrangeBox asociadas están en:
 
@@ -136,6 +170,8 @@ Actualmente:
 
 - `10450`: señal de TCP SYN usada para correlación sin generar alertas individuales.
 - `10453`: 12 SYN en 90 segundos, misma IP origen y diferentes puertos destino.
+- `10454`: múltiples SYN al mismo puerto desde una misma IP.
+- `10455`: múltiples SYN al mismo puerto desde diferentes IP de origen.
 
 ## Futuros componentes
 
