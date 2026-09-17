@@ -32,6 +32,7 @@ DEFAULT_FROM = "wazuh@orangebox.cl"
 SMTP_HOST = "localhost"
 SMTP_PORT = 25
 ARCHIVE_DIR = Path("/var/ossec/reports/archive")
+LOGO_URL = "https://www.orangebox.cl/obox/img/logo-dark.png"
 
 CATEGORY_LABELS = {
     "authentication": "Autenticación",
@@ -83,9 +84,11 @@ def css():
       .page { max-width:1180px; margin:0 auto; padding:24px 14px 36px; }
       .header { background:#17202a; border-radius:16px; padding:24px 26px; color:#fff; }
       .brand { display:flex; align-items:center; gap:16px; }
-      .brand-mark { width:54px; height:54px; border-radius:12px; background:#f58220; display:flex; align-items:center; justify-content:center; color:#fff; font-size:28px; font-weight:800; box-shadow:inset 0 -5px 0 rgba(0,0,0,.12); }
-      .brand-name { font-size:26px; font-weight:800; letter-spacing:.2px; color:#fff; }
-      .brand-name span { color:#f58220; }
+      .logo-wrap { flex:0 0 auto; background:#fff; border:1px solid #d9e0e5; border-radius:10px; padding:7px 10px; line-height:0; box-shadow:0 2px 8px rgba(0,0,0,.12); }
+      .logo { display:block; width:auto; max-width:190px; height:58px; object-fit:contain; }
+      .brand-copy { min-width:0; }
+      .brand-title { margin:0; color:#fff; font-size:27px; font-weight:800; line-height:1.15; }
+      .brand-subtitle { margin:7px 0 0; color:#d5dee4; font-size:14px; }
       h1 { margin:0; font-size:27px; line-height:1.15; }
       .subtitle { margin:7px 0 0; color:#cbd3db; font-size:14px; }
       .period { margin-top:18px; padding-top:14px; border-top:1px solid #46515d; font-size:13px; color:#e4e8ec; }
@@ -111,7 +114,7 @@ def css():
       .firewall .metric { color:#c43d2b; }
       .footer { text-align:center; color:#7b858e; font-size:11px; padding:18px 4px 0; }
       @media (max-width:800px) { .grid { grid-template-columns:repeat(2,1fr); } .two { grid-template-columns:1fr; } }
-      @media (max-width:520px) { .grid { grid-template-columns:1fr 1fr; gap:8px; } .card { padding:13px; } .metric { font-size:24px; } .header { padding:18px; } h1 { font-size:22px; } .brand-mark { width:46px; height:46px; font-size:22px; } .brand-name { font-size:22px; } }
+      @media (max-width:520px) { .grid { grid-template-columns:1fr 1fr; gap:8px; } .card { padding:13px; } .metric { font-size:24px; } .header { padding:18px; } .brand { align-items:flex-start; } .brand-title { font-size:22px; } .brand-subtitle { font-size:12px; } .logo-wrap { padding:6px 8px; } .logo { max-width:150px; height:46px; } }
     </style>
     """
 
@@ -216,14 +219,12 @@ def dashboard_html(report, summary, group, start, end, label, lang="es"):
 <div class="page">
   <div class="header">
     <div class="brand">
-      <div class="brand-mark">O</div>
-      <div>
-        <div class="brand-name">Orange<span>Box</span></div>
-        <div class="subtitle">Security Operations · Wazuh</div>
+      <div class="logo-wrap">
+        <img class="logo" src="{esc(LOGO_URL)}" alt="OrangeBox IT Services">
       </div>
-      <div style="margin-left:auto;text-align:right;">
-        <h1>📊 Security Dashboard</h1>
-        <div class="subtitle">Resumen visual de actividad y detecciones</div>
+      <div class="brand-copy">
+        <div class="brand-title">Security Dashboard</div>
+        <div class="brand-subtitle">Resumen visual de actividad y detecciones de Wazuh</div>
       </div>
     </div>
     <div class="period"><strong>Cliente / grupo:</strong> {esc(group)} &nbsp;·&nbsp; <strong>Período:</strong> {esc(label)}<br>{esc(period)}</div>
