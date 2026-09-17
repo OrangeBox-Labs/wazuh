@@ -24,11 +24,60 @@ Se vigilan en tiempo real:
 
 Zimbra y Carbonio aparecen separados porque ambos utilizan directorios temporales distintos. Esto viene de los incidentes que motivaron estas reglas; no es una lista genérica puesta porque sí.
 
+## Who-Data en rutas críticas
+
+Las rutas relacionadas con autenticación, identidad, privilegios, firewall y persistencia utilizan `whodata="yes"`.
+
+La idea es no quedarnos solamente con:
+
+```text
+archivo modificado
+```
+
+sino conservar también información sobre:
+
+```text
+usuario + proceso que realizó el cambio
+```
+
+En Linux, Wazuh usa `audit` como proveedor por defecto cuando no se especifica otro. Esto requiere que el endpoint tenga el subsistema Audit disponible. No forzamos eBPF en la configuración compartida porque el proyecto todavía debe cubrir también Enterprise Linux antiguo.
+
+Las rutas protegidas con Who-Data incluyen principalmente:
+
+- `/root`;
+- SSH, SUDO, PAM y Polkit;
+- archivos de identidad (`passwd`, `shadow`, `group`, `gshadow`);
+- configuración de red y firewall;
+- SYSTEMD y CRON;
+- binarios privilegiados de Zimbra/Carbonio;
+- artefactos de persistencia y autenticación SSH.
+
+`who-data` complementa FIM. No reemplaza la integridad ni las reglas OrangeBox.
+
+## Persistencia de credenciales
+
+Se vigilan específicamente los directorios:
+
+- `/root/.ssh`
+- `/home/*/.ssh`
+
+con el objetivo de detectar inmediatamente cambios en `authorized_keys` y otros artefactos SSH que puedan utilizarse para mantener acceso.
+
+También se vigilan rutas clásicas de persistencia del sistema como:
+
+- `/etc/systemd/system`
+- `/etc/systemd/user`
+- `/etc/cron.d`
+- `/var/spool/cron`
+- `/etc/ld.so.preload`
+- perfiles de shell;
+- mecanismos `rc.local` de sistemas antiguos.
+
+En los directorios SSH no usamos `report_changes="yes"`: queremos saber **que cambió, cuándo y quién lo cambió**, pero no necesitamos convertir el correo de seguridad en una fotocopiadora de archivos sensibles.
+
 ## `/root` y configuración sensible
 
-`/root` y las rutas de autenticación, privilegios, red, firewall, PHP, bases de datos y persistencia usan `report_changes="yes"`.
-
-La razón es que para estas rutas **no basta con saber que algo cambió**. El diff puede ser justamente la parte que permite entender qué hizo el cambio.
+`/root` y las rutas de autenticación, privilegios, red, firewall y persistencia usan `report_changes="yes"` donde el diff aporta valor operativo.
 
 Entre las rutas críticas están:
 
@@ -50,9 +99,9 @@ Las reglas OrangeBox interpretan después estos eventos FIM. Este archivo **reco
 
 Hay un bloque específico para los ejecutables que forman parte de la whitelist de `orangebox-auth.xml`.
 
-Se monitorean individualmente y con diff activo.
+Se monitorean individualmente, con diff y Who-Data activos.
 
-La decisión de no vigilar todo `/opt/zimbra` es intencional: solamente protegemos los comandos que tienen permiso de convertirse en root mediante la whitelist. Si uno de ellos fuera reemplazado o modificado, el atacante podría transformar una herramienta legítima en una puerta de escalamiento.
+La decisión de no vigilar todo `/opt/zimbra` o `/opt/zextras` es intencional: solamente protegemos los comandos que tienen permiso de convertirse en root mediante la whitelist. Si uno de ellos fuera reemplazado o modificado, el atacante podría transformar una herramienta legítima en una puerta de escalamiento.
 
 Por eso estos archivos tienen doble protección:
 
@@ -71,13 +120,15 @@ Se monitorean las configuraciones de firewall, incluyendo:
 - nftables
 - Imunify360
 
+Las rutas de firewall críticas tienen Who-Data para poder atribuir cambios a usuario/proceso además de registrar el contenido modificado.
+
 `iptables` tiene además una regla específica en `orangebox-hardening.xml`, porque un `iptables-save` puede modificar timestamps y contadores sin que haya cambiado una regla real. El agente debe registrar el cambio; la regla decide si el cambio es relevante.
 
 ## Binarios y librerías
 
-`/bin`, `/sbin`, `/usr/bin`, `/usr/sbin`, librerías y certificados se monitorean en tiempo real, pero sin `report_changes`.
+`/bin`, `/sbin`, `/usr/bin`, `/usr/sbin`, librerías y certificados se monitorean en tiempo real, pero sin `report_changes` ni Who-Data.
 
-La razón es práctica: obtener diff de miles de binarios compilados puede generar muchísimo almacenamiento y ruido. Para estos archivos nos interesa primero saber **que cambiaron**; no necesitamos guardar un diff de contenido que normalmente no resulta útil.
+La razón es práctica: obtener diff o trazabilidad de miles de binarios compilados puede generar muchísimo almacenamiento y ruido. Para estos archivos nos interesa primero saber **que cambiaron**; no necesitamos convertir cada actualización legítima del sistema en una tesis doctoral.
 
 ## Relación con las reglas OrangeBox
 
@@ -100,12 +151,14 @@ Antes de agregar algo hay que responder:
 - ¿Tenemos una regla que lo interprete?
 - ¿Necesitamos el diff?
 - ¿Qué falso positivo podemos generar?
+- ¿Necesitamos Who-Data para atribuir el cambio?
 
 Si no tenemos respuesta, probablemente todavía no necesitamos esa ruta.
 
 ## Dependencias
 
 - Wazuh Agent / Syscheck (FIM).
+- Audit en Linux cuando se utiliza `whodata="yes"` con el proveedor por defecto.
 - Reglas personalizadas de `configuration/rules/`.
 - El contenido de este archivo se instala normalmente como configuración compartida del agente.
 
