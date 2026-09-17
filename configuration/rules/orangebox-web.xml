@@ -77,22 +77,20 @@
         Las rutas de reconocimiento de archivos sensibles se excluyen
         para no clasificarlas como brute force.
 
-        Nivel 11:
-        se conserva la alerta Wazuh, pero queda por debajo del umbral
-        12 utilizado por la integracion de correo OrangeBox.
+        Nivel 13:
+        se considera un evento de alta importancia y supera el umbral
+        de la integracion de correo OrangeBox.
 
-        IMPORTANTE:
-        El Active Response firewall-drop se mantiene asociado a esta
-        regla en la configuracion del manager, por lo que bajar el
-        nivel NO elimina el bloqueo.
+        Active Response:
+        firewall-drop bloquea el origen durante 24 horas.
     -->
 
-    <rule id="10025" level="11" frequency="10" timeframe="15">
+    <rule id="10025" level="13" frequency="10" timeframe="15">
         <if_matched_sid>10024</if_matched_sid>
         <id>^401$|^403$</id>
         <url type="pcre2" negate="yes">^/\.env|^/\.aws/|^/\.config/gcloud/|^/\.oci/|^/\.openai/|^/wp-config\.php|^/@fs/.*(\.env|\.aws/|\.config/gcloud/|\.oci/|\.openai/|wp-config\.php)</url>
         <same_srcip />
-        <description>ALERTA: Posible fuerza bruta web. Multiples respuestas HTTP 401/403 desde la misma IP.</description>
+        <description>ALERTA CRITICA: Posible fuerza bruta web. Multiples respuestas HTTP 401/403 desde la misma IP.</description>
         <mitre>
             <id>T1110</id>
         </mitre>
@@ -110,16 +108,15 @@
         Como 10023 acepta cualquier HTTP 4xx, se incluyen respuestas
         401, 403 y 404.
 
-        Nivel 11: se conserva la deteccion y el Active Response
-        firewall-drop durante 24 horas, pero queda por debajo del
-        umbral 12 utilizado por la integracion de correo OrangeBox.
+        Nivel 14:
+        evento de alta importancia de seguridad y supera el umbral
+        de la integracion de correo OrangeBox.
 
-        IMPORTANTE:
-        El Active Response se mantiene asociado explicitamente a la
-        regla 10026, por lo que bajar el nivel NO elimina el bloqueo.
+        Active Response:
+        firewall-drop bloquea el origen durante 24 horas.
     -->
 
-    <rule id="10026" level="11" frequency="2" timeframe="30">
+    <rule id="10026" level="14" frequency="2" timeframe="30">
         <if_matched_sid>10023</if_matched_sid>
         <same_srcip />
         <description>ALERTA CRITICA: Posible reconocimiento automatizado de archivos sensibles o credenciales web. Multiples intentos desde la misma IP.</description>
