@@ -16,6 +16,9 @@ configuration/
 ├── manager/
 │   ├── ossec.conf
 │   └── ossec.md
+├── reports/
+│   ├── orangebox-security-report.py
+│   └── orangebox-security-report.md
 ├── rules/
 │   ├── *.xml
 │   ├── *.yar
@@ -27,9 +30,10 @@ configuration/
 
 La separación no es solamente estética. Cada componente tiene una responsabilidad distinta:
 
-- **`agents/`**: política distribuida que reciben los agentes, principalmente FIM y monitoreo de integridad.
+- **`agents/`**: política distribuida que reciben los agentes, principalmente FIM, Who-Data y monitoreo de integridad.
 - **`integrations/`**: código que conecta Wazuh con servicios externos o con el mecanismo de alertamiento OrangeBox.
 - **`manager/`**: configuración del Wazuh Manager y sus módulos globales.
+- **`reports/`**: generación de reportes de actividad a partir de las alertas de Wazuh.
 - **`rules/`**: interpretación y correlación de eventos mediante reglas XML y firmas YARA.
 - **`scripts/`**: automatizaciones auxiliares que no pertenecen directamente al ruleset ni a la configuración del Manager.
 
@@ -44,7 +48,7 @@ Los `README.md` de directorio se reservan para explicar la arquitectura y servir
 ```text
 agent.conf
     ↓
-telemetría / FIM / logs
+telemetría / FIM / logs / Who-Data
     ↓
 reglas XML / YARA
     ↓
@@ -55,6 +59,19 @@ integraciones / Active Response
 
 El objetivo es poder reconstruir el sistema entendiendo tanto la configuración actual como las razones históricas que llevaron a ella.
 
-## Cambios futuros
+## Estado actual
 
-El diseño seguirá evolucionando. En particular, la incorporación de detecciones de escaneo de puertos y DDoS mediante logs de firewall y `firewall-drop` implicará cambios coordinados en agentes, reglas, Active Response y documentación. No se adelantan esos cambios en los archivos actuales hasta que la nueva arquitectura sea definida y probada.
+La configuración ya incorpora detecciones de reconocimiento de red mediante logs de firewall, correlación de port scan, detección de SYN flood y posible DoS distribuido, además de `firewall-drop` donde corresponde.
+
+La capa de FIM también utiliza Who-Data en rutas críticas para conservar información del usuario y proceso que realizó modificaciones, y vigila artefactos relevantes para persistencia de credenciales SSH.
+
+## Pendientes de evolución
+
+El proyecto seguirá evolucionando. Entre los próximos trabajos están:
+
+- conectar completamente las firmas YARA al pipeline de detección FIM;
+- revisar la política preventiva de puertos del firewall;
+- mejorar el envío de alertas por grupo y cliente;
+- ampliar pruebas automatizadas del ruleset y de las integraciones.
+
+No se agregan cambios por deporte: cada componente debe probarse antes de convertirse en parte de la configuración base.
