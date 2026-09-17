@@ -27,9 +27,11 @@ Autenticación, escalamiento de privilegios y correlaciones SSH/SUDO/SU.
 
 Incluye, entre otras, la detección de login SSH exitoso `10001` y la correlación `10006` de múltiples fallos SSH seguidos de un login exitoso desde la misma IP.
 
+Las alertas pertenecientes al grupo `privilege_escalation_root` son tratadas como inmediatas por la integración de correo OrangeBox.
+
 ### `orangebox-hardening.xml`
 
-Detecciones relacionadas con modificaciones de componentes y configuraciones críticas del sistema.
+Detecciones relacionadas con modificaciones y eliminaciones de componentes y configuraciones críticas del sistema.
 
 ### `orangebox-temporary-executable.xml`
 
@@ -47,16 +49,20 @@ Incluye:
 
 - `10450`: evento de soporte para un TCP SYN entrante. Usa nivel 1 + `no_log`, por lo que participa en correlaciones sin generar una alerta por cada paquete.
 - `10453`: correlación de 12 SYN en 90 segundos desde la misma IP hacia puertos destino diferentes, utilizada para detectar posible escaneo TCP de puertos.
+- `10454`: correlación de 60 SYN en 10 segundos desde la misma IP hacia el mismo puerto, utilizada para detectar posible SYN flood.
+- `10455`: correlación de 80 IPs origen diferentes en 10 segundos hacia el mismo puerto, utilizada para detectar posible DoS distribuido.
 
 La regla `10453` conserva la lógica de frecuencia de la regla nativa de Wazuh `40601`, pero utiliza `if_matched_sid 10450` y `different_dstport` para hacer la detección más específica.
 
-### Firmas YARA
+`10453` y `10454` tienen `firewall-drop` asociado. `10455` permanece como alerta porque una detección distribuida no identifica una única IP que represente al conjunto del tráfico.
+
+## Firmas YARA
 
 - `orangebox-webshell-core.yar`
 - `orangebox-webshell-extended.yar`
 - `webshells_index.yar`
 
-Estas firmas complementan las reglas XML para identificar contenido compatible con webshells.
+Estas firmas complementan las reglas XML para identificar contenido compatible con webshells. La integración completa FIM -> YARA -> alerta Wazuh continúa siendo una etapa de evolución del proyecto.
 
 ## Ingeniería y pruebas
 
@@ -86,7 +92,7 @@ Las reglas de detección no implican automáticamente bloqueo. Cada acción debe
 - duración del bloqueo;
 - capacidad del agente para ejecutar y registrar la acción.
 
-El futuro soporte de `firewall-drop` para escaneo de puertos y DDoS requerirá actualizar también el deploy de agentes para garantizar que los logs del firewall estén disponibles.
+El despliegue actual ya incluye el logging de firewall necesario para alimentar las detecciones de reconocimiento y volumen, además de `firewall-drop` para las reglas donde existe una IP de origen adecuada para la contención.
 
 ## Regla de oro
 
