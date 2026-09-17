@@ -297,7 +297,17 @@ def main():
         if not re.fullmatch(r"[^\s@]+@[^\s@]+",recipient): raise SystemExit(f"Dirección de correo inválida: {recipient}")
     mode=args.date and f"date:{args.date}" or next(name for name in ("today","yesterday","thisweek","lastweek","thismonth","lastmonth","thisyear","lastyear") if getattr(args,name))
     now=datetime.now().astimezone(); start,end,label=period_bounds(mode,now); allowed=group_members(args.group); summary=load_events(start,end,allowed); period=f"{start.strftime('%d/%m/%Y %H:%M')} — {end.strftime('%d/%m/%Y %H:%M') if end < now else 'ahora'}"; L=labels(args.lang); body=generate_html(summary,L["report"],L["subtitle"],period,args.group,args.lang); archive=archive_html(body,f"{args.group}-{mode.replace(':','-')}-{start:%Y%m%d}-{end:%Y%m%d}")
-    subject=f"[OrangeBox SOC] {label} — {args.group}"; sent=[]; failed=[]
+    subject_prefix={
+        "today": "Reporte Diario de Seguridad",
+        "yesterday": "Reporte Diario de Seguridad",
+        "thisweek": "Reporte Semanal de Seguridad",
+        "lastweek": "Reporte Semanal de Seguridad",
+        "thismonth": "Reporte Mensual de Seguridad",
+        "lastmonth": "Reporte Mensual de Seguridad",
+        "thisyear": "Reporte Anual de Seguridad",
+        "lastyear": "Reporte Anual de Seguridad",
+    }
+    subject=f"📊 [ORANGEBOX] {subject_prefix.get(mode, 'Reporte de Seguridad')} — {args.group}"; sent=[]; failed=[]
     for recipient in recipients:
         try: send_email(subject,body,recipient); sent.append(recipient)
         except Exception as exc: failed.append((recipient,exc))
