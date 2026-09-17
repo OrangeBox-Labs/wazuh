@@ -142,12 +142,33 @@
         La regla es deliberadamente de nivel 15 e incluye
         privilege_escalation_root para que la integracion de correo la trate
         como alerta inmediata.
+
+        Zimbra y Carbonio CE mantienen la misma politica:
+            /opt/zimbra/...
+            /opt/zextras/...
     -->
     <rule id="10046" level="15">
         <if_sid>550</if_sid>
-        <field name="file">^/opt/zimbra/libexec/zmstat-fd$|^/opt/zimbra/common/sbin/postfix$|^/opt/zimbra/common/sbin/postalias$|^/opt/zimbra/common/sbin/qshape\.pl$|^/opt/zimbra/common/sbin/postconf$|^/opt/zimbra/common/sbin/postsuper$|^/opt/zimbra/common/sbin/postcat$|^/opt/zimbra/libexec/zmqstat$|^/opt/zimbra/libexec/zmmtastatus$|^/opt/zimbra/libexec/zmmailboxdmgr$</field>
+        <field name="file">^/opt/(?:zimbra|zextras)/(?:libexec/zmstat-fd|common/sbin/postfix|common/sbin/postalias|common/sbin/qshape\.pl|common/sbin/postconf|common/sbin/postsuper|common/sbin/postcat|libexec/zmqstat|libexec/zmmtastatus|libexec/zmmailboxdmgr)$</field>
         <description>ALERTA CRITICA: Comando autorizado para SUDO -> ROOT fue modificado.</description>
         <group>sudo,privilege_escalation,privilege_escalation_root,integrity,orangebox_sudo_command_integrity,</group>
+    </rule>
+
+    <!--
+        Persistencia de credenciales mediante claves SSH.
+
+        El agente monitoriza /root/.ssh y /home/*/.ssh con Who-Data y sin
+        report_changes, para detectar cambios sin exponer contenido sensible.
+
+        Esta regla se limita a authorized_keys: agregar, modificar o
+        reemplazar una clave autorizada puede crear persistencia de acceso
+        aun cuando el resto del sistema permanezca intacto.
+    -->
+    <rule id="10048" level="13">
+        <if_sid>550</if_sid>
+        <field name="file" type="pcre2">^/root/\.ssh/authorized_keys$|^/home/[^/]+/\.ssh/authorized_keys$</field>
+        <description>ALERTA: Archivo SSH authorized_keys modificado. Posible persistencia de credenciales.</description>
+        <group>authentication,persistence,credential_persistence,orangebox_auth,</group>
     </rule>
 
 </group>
@@ -210,9 +231,22 @@
     <!-- Eliminacion de un comando autorizado para SUDO -> ROOT. -->
     <rule id="10047" level="15">
         <if_sid>553</if_sid>
-        <field name="file">^/opt/zimbra/libexec/zmstat-fd$|^/opt/zimbra/common/sbin/postfix$|^/opt/zimbra/common/sbin/postalias$|^/opt/zimbra/common/sbin/qshape\.pl$|^/opt/zimbra/common/sbin/postconf$|^/opt/zimbra/common/sbin/postsuper$|^/opt/zimbra/common/sbin/postcat$|^/opt/zimbra/libexec/zmqstat$|^/opt/zimbra/libexec/zmmtastatus$|^/opt/zimbra/libexec/zmmailboxdmgr$</field>
+        <field name="file">^/opt/(?:zimbra|zextras)/(?:libexec/zmstat-fd|common/sbin/postfix|common/sbin/postalias|common/sbin/qshape\.pl|common/sbin/postconf|common/sbin/postsuper|common/sbin/postcat|libexec/zmqstat|libexec/zmmtastatus|libexec/zmmailboxdmgr)$</field>
         <description>ALERTA CRITICA: Comando autorizado para SUDO -> ROOT fue eliminado.</description>
         <group>sudo,privilege_escalation,privilege_escalation_root,integrity,orangebox_sudo_command_integrity,</group>
+    </rule>
+
+    <!--
+        Eliminacion de authorized_keys.
+
+        La eliminacion de la clave puede utilizarse para destruir o
+        modificar mecanismos de acceso existentes durante una intrusion.
+    -->
+    <rule id="10049" level="15">
+        <if_sid>553</if_sid>
+        <field name="file" type="pcre2">^/root/\.ssh/authorized_keys$|^/home/[^/]+/\.ssh/authorized_keys$</field>
+        <description>ALERTA CRITICA: Archivo SSH authorized_keys eliminado. Posible manipulacion de persistencia de credenciales.</description>
+        <group>authentication,persistence,credential_persistence,orangebox_auth,</group>
     </rule>
 
 </group>
