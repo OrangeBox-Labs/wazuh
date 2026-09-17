@@ -2,6 +2,11 @@
 
 # OrangeBox - Wazuh Agent / Firewall Logging
 # Compatible: CentOS 6/7/8 and AlmaLinux 8/9/10.
+#
+# Logging backend by Enterprise Linux major version:
+#   EL 6    : iptables -> rsyslog -> /var/log/orangebox-firewall.log -> Wazuh
+#   EL 7+   : iptables -> journald -> Wazuh
+#
 # Idempotent: existing correct settings are preserved; missing settings are added;
 # unexpected existing settings cause an error instead of guessing.
 
@@ -14,6 +19,8 @@ DEFAULT_AGENT_NAME="$HOSTNAME"
 
 FIREWALL_LOG="/var/log/orangebox-firewall.log"
 LOGROTATE_FILE="/etc/logrotate.d/orangebox-firewall"
+EL_MAJOR=""
+LOGGING_BACKEND=""
 
 fail() { echo "ERROR: $*" >&2; exit 1; }
 ok() { echo "OK: $*"; }
@@ -33,6 +40,39 @@ yesno() {
 }
 
 [ "$(id -u)" -eq 0 ] || fail "Debes ejecutar como root."
+
+# ---------------------------------------------------------------------------
+# 0. Plataforma / backend de logging
+# ---------------------------------------------------------------------------
+
+# Detecta la major de Enterprise Linux.
+# Preferimos la macro %{rhel} de RPM y dejamos /etc/redhat-release como fallback.
+detect_platform() {
+    if has rpm; then
+        EL_MAJOR="$(rpm -E '%{rhel}' 2>/dev/null || true)"
+        case "$EL_MAJOR" in
+            ""|"%{rhel}") EL_MAJOR="" ;;
+        esac
+    fi
+
+    if [ -z "$EL_MAJOR" ] && [ -f /etc/redhat-release ]; then
+        EL_MAJOR="$(sed -n 's/.*release \([0-9][0-9]*\).*/\1/p' /etc/redhat-release | head -n1)"
+    fi
+
+    case "$EL_MAJOR" in
+        6)
+            LOGGING_BACKEND="rsyslog"
+            ;;
+        7|8|9|10)
+            LOGGING_BACKEND="journald"
+            ;;
+        *)
+            fail "Versión de Enterprise Linux no soportada o no detectada: ${EL_MAJOR:-desconocida}."
+            ;;
+    esac
+
+    ok "Enterprise Linux ${EL_MAJOR}: backend de logging ${LOGGING_BACKEND}."
+}
 
 # ---------------------------------------------------------------------------
 # 1. Wazuh Agent
@@ -93,9 +133,15 @@ install_agent() {
     curl -fL -o "/tmp/$rpm_file" "$url" || fail "Falló la descarga."
 
     if has yum; then
-        WAZUH_MANAGER="$MANAGER" WAZUH_REGISTRATION_SERVER="$MANAGER"         WAZUH_REGISTRATION_PASSWORD="$PASSWORD" WAZUH_AGENT_NAME="$AGENT_NAME"         WAZUH_AGENT_GROUP="$GROUP" yum localinstall -y "/tmp/$rpm_file"         || fail "Falló yum."
+        WAZUH_MANAGER="$MANAGER" WAZUH_REGISTRATION_SERVER="$MANAGER" \
+        WAZUH_REGISTRATION_PASSWORD="$PASSWORD" WAZUH_AGENT_NAME="$AGENT_NAME" \
+        WAZUH_AGENT_GROUP="$GROUP" yum localinstall -y "/tmp/$rpm_file" \
+        || fail "Falló yum."
     elif has dnf; then
-        WAZUH_MANAGER="$MANAGER" WAZUH_REGISTRATION_SERVER="$MANAGER"         WAZUH_REGISTRATION_PASSWORD="$PASSWORD" WAZUH_AGENT_NAME="$AGENT_NAME"         WAZUH_AGENT_GROUP="$GROUP" dnf install -y "/tmp/$rpm_file"         || fail "Falló dnf."
+        WAZUH_MANAGER="$MANAGER" WAZUH_REGISTRATION_SERVER="$MANAGER" \
+        WAZUH_REGISTRATION_PASSWORD="$PASSWORD" WAZUH_AGENT_NAME="$AGENT_NAME" \
+        WAZUH_AGENT_GROUP="$GROUP" dnf install -y "/tmp/$rpm_file" \
+        || fail "Falló dnf."
     else
         fail "No existe yum ni dnf."
     fi
@@ -124,11 +170,16 @@ restart_agent() {
 # ---------------------------------------------------------------------------
 
 iptables_input_rule_exists() {
-    iptables -C INPUT         -p tcp --tcp-flags SYN SYN         ! -s 127.0.0.0/8         -j ORANGEBOX-FW >/dev/null 2>&1
+    iptables -C INPUT \
+        -p tcp --tcp-flags SYN SYN \
+        ! -s 127.0.0.0/8 \
+        -j ORANGEBOX-FW >/dev/null 2>&1
 }
 
 iptables_log_rule_exists() {
-    iptables -C ORANGEBOX-FW         -m limit --limit 20/second --limit-burst 40         -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4 >/dev/null 2>&1
+    iptables -C ORANGEBOX-FW \
+        -m limit --limit 20/second --limit-burst 40 \
+        -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4 >/dev/null 2>&1
 }
 
 iptables_return_rule_exists() {
@@ -136,8 +187,8 @@ iptables_return_rule_exists() {
 }
 
 iptables_config_ok() {
-    iptables_input_rule_exists &&
-    iptables_log_rule_exists &&
+    iptables_input_rule_exists && \
+    iptables_log_rule_exists && \
     iptables_return_rule_exists
 }
 
@@ -151,17 +202,25 @@ configure_iptables() {
 
     if ! iptables_log_rule_exists; then
         echo "==> Agregando LOG a ORANGEBOX-FW..."
-        iptables -A ORANGEBOX-FW             -m limit --limit 20/second --limit-burst 40             -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4             || fail "No se pudo agregar LOG a ORANGEBOX-FW."
+        iptables -A ORANGEBOX-FW \
+            -m limit --limit 20/second --limit-burst 40 \
+            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4 \
+            || fail "No se pudo agregar LOG a ORANGEBOX-FW."
     fi
 
     if ! iptables_return_rule_exists; then
         echo "==> Agregando RETURN a ORANGEBOX-FW..."
-        iptables -A ORANGEBOX-FW -j RETURN             || fail "No se pudo agregar RETURN a ORANGEBOX-FW."
+        iptables -A ORANGEBOX-FW -j RETURN \
+            || fail "No se pudo agregar RETURN a ORANGEBOX-FW."
     fi
 
     if ! iptables_input_rule_exists; then
         echo "==> Conectando INPUT con ORANGEBOX-FW..."
-        iptables -I INPUT 1             -p tcp --tcp-flags SYN SYN             ! -s 127.0.0.0/8             -j ORANGEBOX-FW             || fail "No se pudo conectar INPUT con ORANGEBOX-FW."
+        iptables -I INPUT 1 \
+            -p tcp --tcp-flags SYN SYN \
+            ! -s 127.0.0.0/8 \
+            -j ORANGEBOX-FW \
+            || fail "No se pudo conectar INPUT con ORANGEBOX-FW."
     fi
 
     iptables_config_ok || fail "La configuración ORANGEBOX-FW no quedó completa o correcta."
@@ -170,7 +229,8 @@ configure_iptables() {
         if has service && service iptables save >/dev/null 2>&1; then
             ok "Configuración iptables persistida."
         else
-            iptables-save > /etc/sysconfig/iptables                 || warn "No se pudo persistir la configuración iptables."
+            iptables-save > /etc/sysconfig/iptables \
+                || warn "No se pudo persistir la configuración iptables."
         fi
     else
         warn "No existe /etc/sysconfig/iptables; no se fuerza persistencia."
@@ -188,9 +248,11 @@ configure_firewalld() {
         ok "Regla ORANGEBOX-FW ya existe en firewalld."
     else
         echo "==> Agregando regla ORANGEBOX-FW a firewalld..."
-        firewall-cmd --permanent --direct --add-rule ipv4 filter INPUT 0 "$r"             || fail "No se pudo agregar la regla a firewalld."
+        firewall-cmd --permanent --direct --add-rule ipv4 filter INPUT 0 "$r" \
+            || fail "No se pudo agregar la regla a firewalld."
         firewall-cmd --reload || fail "No se pudo recargar firewalld."
-        firewall-cmd --direct --get-all-rules 2>/dev/null | grep -F -- "$r" >/dev/null 2>&1             || fail "No se pudo validar la regla firewalld."
+        firewall-cmd --direct --get-all-rules 2>/dev/null | grep -F -- "$r" >/dev/null 2>&1 \
+            || fail "No se pudo validar la regla firewalld."
         ok "Regla ORANGEBOX-FW instalada en firewalld."
     fi
 }
@@ -206,13 +268,13 @@ configure_firewall() {
 }
 
 # ---------------------------------------------------------------------------
-# 3. rsyslog
+# 3. Logging EL6: rsyslog
 # ---------------------------------------------------------------------------
 
 rsyslog_rule_exists() {
-    [ -f /etc/rsyslog.conf ] &&
-    grep -Fq ':msg, contains, "ORANGEBOX-FW:"' /etc/rsyslog.conf &&
-    grep -Fq '/var/log/orangebox-firewall.log' /etc/rsyslog.conf &&
+    [ -f /etc/rsyslog.conf ] && \
+    grep -Fq ':msg, contains, "ORANGEBOX-FW:"' /etc/rsyslog.conf && \
+    grep -Fq '/var/log/orangebox-firewall.log' /etc/rsyslog.conf && \
     grep -Fxq 'stop' /etc/rsyslog.conf
 }
 
@@ -225,13 +287,18 @@ configure_rsyslog() {
 
     if ! rsyslog_rule_exists; then
         local line
-        line="$(grep -n -E '^\*\.info;mail\.none;authpriv\.none;cron\.none[[:space:]].*/var/log/messages' /etc/rsyslog.conf | head -n1 | cut -d: -f1)"
+        line="$(grep -n -E '^\\*\\.info;mail\\.none;authpriv\\.none;cron\\.none[[:space:]].*/var/log/messages' /etc/rsyslog.conf | head -n1 | cut -d: -f1)"
         [ -n "$line" ] || fail "No se encontró la regla de /var/log/messages."
 
-        cp -p /etc/rsyslog.conf "/etc/rsyslog.conf.orangebox-backup.$(date +%Y%m%d%H%M%S)"             || fail "No se pudo respaldar rsyslog.conf."
+        cp -p /etc/rsyslog.conf "/etc/rsyslog.conf.orangebox-backup.$(date +%Y%m%d%H%M%S)" \
+            || fail "No se pudo respaldar rsyslog.conf."
 
-        awk -v n="$line" 'NR == n { print ":msg, contains, \"ORANGEBOX-FW:\" -/var/log/orangebox-firewall.log"; print "stop" } { print }' /etc/rsyslog.conf > /etc/rsyslog.conf.orangebox.tmp || fail "No se pudo preparar el filtro de rsyslog."
-        mv /etc/rsyslog.conf.orangebox.tmp /etc/rsyslog.conf || fail "No se pudo actualizar rsyslog.conf."
+        awk -v n="$line" 'NR == n { print ":msg, contains, \"ORANGEBOX-FW:\" -/var/log/orangebox-firewall.log"; print "stop" } { print }' \
+            /etc/rsyslog.conf > /etc/rsyslog.conf.orangebox.tmp \
+            || fail "No se pudo preparar el filtro de rsyslog."
+
+        mv /etc/rsyslog.conf.orangebox.tmp /etc/rsyslog.conf \
+            || fail "No se pudo actualizar rsyslog.conf."
     fi
 
     rsyslog_rule_exists || fail "No se pudo validar la regla rsyslog."
@@ -250,11 +317,32 @@ configure_rsyslog() {
     grep -Fq "$marker" "$FIREWALL_LOG" || fail "El test rsyslog no llegó al log dedicado."
     grep -Fq "$marker" /var/log/messages && fail "El test rsyslog también llegó a messages."
 
-    ok "rsyslog validado."
+    ok "rsyslog validado para EL6."
 }
 
 # ---------------------------------------------------------------------------
-# 4. logrotate
+# 4. Logging EL7+: journald
+# ---------------------------------------------------------------------------
+
+configure_journald() {
+    has journalctl || fail "journalctl no está disponible; no se puede usar journald."
+    has logger || fail "logger no está disponible para validar journald."
+
+    journalctl -n 1 --no-pager >/dev/null 2>&1 \
+        || fail "No se pudo consultar journald."
+
+    local marker="ORANGEBOX-JOURNALD-TEST-$(date +%s)"
+    logger -p kern.info -t kernel "$marker ORANGEBOX-FW: test"
+    sleep 1
+
+    journalctl --no-pager -n 100 2>/dev/null | grep -Fq "$marker" \
+        || fail "El test journald no quedó registrado en el journal."
+
+    ok "journald validado para EL${EL_MAJOR}+."
+}
+
+# ---------------------------------------------------------------------------
+# 5. logrotate (solo EL6)
 # ---------------------------------------------------------------------------
 
 configure_logrotate() {
@@ -277,17 +365,36 @@ EOF
     grep -Fq 'rotate 0' "$LOGROTATE_FILE" || fail "Falta rotate 0."
     grep -Fq 'copytruncate' "$LOGROTATE_FILE" || fail "Falta copytruncate."
 
-    ok "logrotate validado."
+    ok "logrotate validado para EL6."
+}
+
+configure_logging() {
+    case "$LOGGING_BACKEND" in
+        rsyslog)
+            echo "==> Configurando rsyslog + logrotate para EL6..."
+            configure_rsyslog
+            configure_logrotate
+            ;;
+        journald)
+            echo "==> Configurando journald para EL${EL_MAJOR}+..."
+            configure_journald
+            ;;
+        *)
+            fail "Backend de logging no definido."
+            ;;
+    esac
 }
 
 # ---------------------------------------------------------------------------
-# 5. Ejecución
+# 6. Ejecución
 # ---------------------------------------------------------------------------
 
 echo
 echo "============================================================"
 echo " OrangeBox - Wazuh Agent / Firewall Logging"
 echo "============================================================"
+
+detect_platform
 
 if agent_installed; then
     ok "Wazuh Agent ya instalado: $(agent_version)"
@@ -298,12 +405,16 @@ fi
 
 restart_agent
 configure_firewall
-configure_rsyslog
-configure_logrotate
+configure_logging
 
 agent_installed || fail "Verificación final: Wazuh Agent ausente."
 [ -s /var/ossec/etc/client.keys ] || fail "Verificación final: client.keys ausente."
-[ -f "$FIREWALL_LOG" ] || fail "Verificación final: log ausente."
-[ -f "$LOGROTATE_FILE" ] || fail "Verificación final: logrotate ausente."
+
+if [ "$LOGGING_BACKEND" = "rsyslog" ]; then
+    [ -f "$FIREWALL_LOG" ] || fail "Verificación final: log ausente."
+    [ -f "$LOGROTATE_FILE" ] || fail "Verificación final: logrotate ausente."
+else
+    journalctl -n 1 --no-pager >/dev/null 2>&1 || fail "Verificación final: journald no está disponible."
+fi
 
 ok "Configuración OrangeBox completada."
