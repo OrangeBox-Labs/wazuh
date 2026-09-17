@@ -80,6 +80,16 @@ Después se comprueba:
 - `client.keys`;
 - servicio activo.
 
+## Who-Data y FIM
+
+La configuración compartida de `configuration/agents/default/agent.conf` utiliza `whodata="yes"` en rutas críticas.
+
+En Linux, Wazuh utiliza el proveedor `audit` por defecto para Who-Data. El endpoint debe disponer del subsistema Audit para obtener usuario y proceso asociados a los cambios de FIM.
+
+El instalador actual no cambia la política de Audit ni fuerza una PKI de agentes: su responsabilidad sigue siendo instalar el agente y preparar el logging de firewall. La presencia y política de `auditd` debe validarse en los endpoints donde se requiera trazabilidad Who-Data.
+
+No se fuerza `ssl_verify_host` ni la verificación de certificados de agentes desde este instalador. Esa funcionalidad requiere una arquitectura completa de CA y certificados por agente.
+
 ## `/var/ossec`
 
 La funcionalidad histórica de crear un LV de 100 MB se mantiene en el flujo de instalación nueva.
@@ -172,6 +182,8 @@ Actualmente:
 - `10453`: 12 SYN en 90 segundos, misma IP origen y diferentes puertos destino.
 - `10454`: múltiples SYN al mismo puerto desde una misma IP.
 - `10455`: múltiples SYN al mismo puerto desde diferentes IP de origen.
+
+`10453` y `10454` tienen `firewall-drop` asociado. `10455` queda como detección distribuida sin bloqueo automático de una IP individual.
 
 ## Futuros componentes
 
