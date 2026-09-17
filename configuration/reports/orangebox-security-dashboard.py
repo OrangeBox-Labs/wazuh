@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """OrangeBox Wazuh Security Dashboard.
 
-Reporte HTML adicional, orientado a dashboard ejecutivo/operacional.
+Reporte HTML adicional orientado a dashboard ejecutivo/operacional.
 
 IMPORTANTE:
 - No reemplaza orangebox-security-report.py.
-- Reutiliza directamente su mecanismo de extracción y clasificación de eventos.
-- No duplica la lectura de alerts.json ni de los archivos históricos.
-- Mantiene los mismos períodos, grupos de agentes y filtros del reporte existente.
+- Usa exactamente la misma función load_events() del reporte clásico.
+- El dashboard solo cambia la presentación de los datos ya recopilados.
+- Mantiene los mismos períodos, grupos de agentes y filtros.
 
 Uso:
   ./orangebox-security-dashboard.py --yesterday --group production --email soporte@orangebox.cl
   ./orangebox-security-dashboard.py --lastweek --group all --email soporte@orangebox.cl --email cliente@example.com
-  ./orangebox-security-dashboard.py --thismonth --group clientes --email soporte@orangebox.cl,cliente@example.com --output /tmp/dashboard.html
+  ./orangebox-security-dashboard.py --thismonth --group clientes --email soporte@orangebox.cl,cliente@example.com
 """
 
 import argparse
@@ -33,9 +33,27 @@ SMTP_HOST = "localhost"
 SMTP_PORT = 25
 ARCHIVE_DIR = Path("/var/ossec/reports/archive")
 
+CATEGORY_LABELS = {
+    "authentication": "Autenticación",
+    "web": "Web",
+    "fim": "Integridad de archivos",
+    "malware": "Malware / WebShell",
+    "privilege": "Privilegios",
+    "attack": "Ataques",
+}
+
+CATEGORY_ICONS = {
+    "authentication": "🔐",
+    "web": "🌐",
+    "fim": "📁",
+    "malware": "🦠",
+    "privilege": "🔑",
+    "attack": "🎯",
+}
+
 
 def load_report_module():
-    """Carga el reporte existente para reutilizar toda su lógica de extracción."""
+    """Carga el reporte clásico para reutilizar su extracción y clasificación."""
     spec = importlib.util.spec_from_file_location("orangebox_security_report", REPORT_PATH)
     if spec is None or spec.loader is None:
         raise SystemExit(f"No se pudo cargar {REPORT_PATH}")
@@ -56,7 +74,7 @@ def fmt_number(value):
 
 
 def css():
-    """CSS autocontenido para que el dashboard viaje dentro del correo HTML."""
+    """CSS autocontenido para correo HTML y navegador."""
     return """
     <style>
       :root { color-scheme: light; }
@@ -65,9 +83,11 @@ def css():
       .page { max-width:1180px; margin:0 auto; padding:24px 14px 36px; }
       .header { background:#17202a; border-radius:16px; padding:24px 26px; color:#fff; }
       .brand { display:flex; align-items:center; gap:16px; }
-      .logo { max-width:190px; max-height:58px; object-fit:contain; background:#fff; padding:7px 10px; border-radius:8px; }
+      .brand-mark { width:54px; height:54px; border-radius:12px; background:#f58220; display:flex; align-items:center; justify-content:center; color:#fff; font-size:28px; font-weight:800; box-shadow:inset 0 -5px 0 rgba(0,0,0,.12); }
+      .brand-name { font-size:26px; font-weight:800; letter-spacing:.2px; color:#fff; }
+      .brand-name span { color:#f58220; }
       h1 { margin:0; font-size:27px; line-height:1.15; }
-      .subtitle { margin:8px 0 0; color:#cbd3db; font-size:14px; }
+      .subtitle { margin:7px 0 0; color:#cbd3db; font-size:14px; }
       .period { margin-top:18px; padding-top:14px; border-top:1px solid #46515d; font-size:13px; color:#e4e8ec; }
       .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin:16px 0; }
       .card { background:#fff; border-radius:14px; padding:18px; box-shadow:0 2px 10px rgba(23,32,42,.08); }
@@ -76,86 +96,43 @@ def css():
       .metric-note { margin-top:5px; color:#7b858e; font-size:12px; }
       .two { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:14px 0; }
       .section { background:#fff; border-radius:14px; padding:20px; box-shadow:0 2px 10px rgba(23,32,42,.08); }
-      h2 { margin:0 0 15px; font-size:18px; }
-      h3 { margin:18px 0 9px; font-size:14px; }
+      h2 { margin:0 0 8px; font-size:18px; }
+      .section-subtitle { margin:0 0 14px; color:#7b858e; font-size:12px; line-height:1.45; }
       table { width:100%; border-collapse:collapse; font-size:13px; }
       th { text-align:left; color:#68737d; font-size:11px; text-transform:uppercase; letter-spacing:.05em; border-bottom:2px solid #e7eaee; padding:8px; }
       td { border-bottom:1px solid #edf0f2; padding:9px 8px; vertical-align:top; }
       .num { text-align:right; font-weight:700; white-space:nowrap; }
       .bar { height:9px; background:#e9edf1; border-radius:20px; overflow:hidden; margin-top:7px; }
       .bar > span { display:block; height:100%; background:#e66a16; border-radius:20px; }
-      .pill { display:inline-block; padding:4px 8px; border-radius:999px; background:#edf2f6; font-size:11px; }
+      .pill { display:inline-block; padding:5px 9px; margin:0 5px 5px 0; border-radius:999px; background:#edf2f6; font-size:11px; font-family:monospace; }
       .empty { color:#7b858e; padding:12px 0; font-size:13px; }
+      .good { color:#147a4a; }
+      .firewall { border-left:4px solid #d54b39; background:#fff8f7; }
+      .firewall .metric { color:#c43d2b; }
       .footer { text-align:center; color:#7b858e; font-size:11px; padding:18px 4px 0; }
       @media (max-width:800px) { .grid { grid-template-columns:repeat(2,1fr); } .two { grid-template-columns:1fr; } }
-      @media (max-width:520px) { .grid { grid-template-columns:1fr 1fr; gap:8px; } .card { padding:13px; } .metric { font-size:24px; } .header { padding:18px; } h1 { font-size:22px; } }
+      @media (max-width:520px) { .grid { grid-template-columns:1fr 1fr; gap:8px; } .card { padding:13px; } .metric { font-size:24px; } .header { padding:18px; } h1 { font-size:22px; } .brand-mark { width:46px; height:46px; font-size:22px; } .brand-name { font-size:22px; } }
     </style>
     """
 
 
-def section_title(title, subtitle=""):
-    extra = f'<div class="subtitle">{esc(subtitle)}</div>' if subtitle else ""
-    return f'<h2>{esc(title)}</h2>{extra}'
-
-
-def find_count(summary, *keys):
-    """Obtiene contadores sin asumir una única forma de serialización del reporte base."""
-    for key in keys:
-        value = summary.get(key)
-        if isinstance(value, (int, float)):
-            return int(value)
-        if isinstance(value, (list, tuple, set, dict)):
-            return len(value)
-    return 0
-
-
-def category_count(summary, category):
-    """Cuenta una categoría desde el resumen generado por el reporte existente."""
-    value = summary.get(category)
-    if isinstance(value, (int, float)):
-        return int(value)
-    if isinstance(value, (list, tuple, set, dict)):
-        return len(value)
-    return 0
-
-
-def rows_from_value(value, limit=10):
-    """Convierte contadores, listas o diccionarios del resumen en filas de dashboard."""
-    if isinstance(value, Counter):
-        return list(value.most_common(limit))
-    if isinstance(value, dict):
-        rows = []
-        for key, item in value.items():
-            if isinstance(item, (int, float)):
-                rows.append((key, item))
-            elif isinstance(item, dict):
-                count = item.get("count", item.get("detections", item.get("total", 0)))
-                if isinstance(count, (int, float)):
-                    rows.append((key, count))
-            elif isinstance(item, (list, tuple, set)):
-                rows.append((key, len(item)))
-        return sorted(rows, key=lambda item: item[1], reverse=True)[:limit]
-    if isinstance(value, (list, tuple, set)):
-        counter = Counter()
-        for item in value:
-            if isinstance(item, dict):
-                name = item.get("agent_name") or item.get("name") or item.get("description") or item.get("rule_id") or "Evento"
-            else:
-                name = item
-            counter[str(name)] += 1
-        return counter.most_common(limit)
-    return []
+def section_title(title, subtitle="", icon=""):
+    heading = f"{icon} {esc(title)}".strip()
+    extra = f'<div class="section-subtitle">{esc(subtitle)}</div>' if subtitle else ""
+    return f'<h2>{heading}</h2>{extra}'
 
 
 def table(rows, first_label="Elemento", second_label="Detecciones"):
+    """Tabla simple con barra proporcional."""
     if not rows:
         return '<div class="empty">No se registraron datos para este período.</div>'
     max_value = max(int(row[1]) for row in rows) or 1
     body = []
     for name, count in rows:
-        width = max(2, round((int(count) / max_value) * 100))
+        value = int(count)
+        width = max(2, round((value / max_value) * 100))
         body.append(
-            f'<tr><td>{esc(name)}</td><td class="num">{fmt_number(count)}'
+            f'<tr><td>{esc(name)}</td><td class="num">{fmt_number(value)}'
             f'<div class="bar"><span style="width:{width}%"></span></div></td></tr>'
         )
     return (
@@ -164,78 +141,129 @@ def table(rows, first_label="Elemento", second_label="Detecciones"):
     )
 
 
+def agent_rows(agents, limit=10):
+    """Convierte Counter[(agent_id, agent_name)] en filas usando solo el nombre."""
+    rows = []
+    for key, count in agents.most_common(limit):
+        if isinstance(key, tuple) and len(key) >= 2:
+            name = key[1]
+        else:
+            name = key
+        rows.append((name, count))
+    return rows
+
+
+def rule_rows(categories, limit=12):
+    """Agrega las reglas de todas las categorías usando el mismo conteo del reporte clásico."""
+    counter = Counter()
+    for info in categories.values():
+        counter.update(info.get("rules") or {})
+
+    rows = []
+    for key, count in counter.most_common(limit):
+        if isinstance(key, tuple) and len(key) >= 2:
+            rule_id, description = key[0], key[1]
+            name = f"{rule_id} · {description}"
+        else:
+            name = key
+        rows.append((name, count))
+    return rows
+
+
+def ip_pills(source_ips, limit=60):
+    """Muestra IPs observadas sin inventar un contador: load_events() entrega un set."""
+    if not source_ips:
+        return '<div class="empty">No se registraron IPs de origen válidas.</div>'
+    items = []
+    for ip in sorted(source_ips, key=str)[:limit]:
+        items.append(f'<span class="pill">{esc(ip)}</span>')
+    suffix = f'<div class="section-subtitle">Mostrando {min(len(source_ips), limit):,} de {len(source_ips):,} IPs observadas.</div>'
+    return suffix + "".join(items)
+
+
 def dashboard_html(report, summary, group, start, end, label, lang="es"):
-    """Renderiza un dashboard a partir del mismo summary del reporte clásico."""
-    categories = [
-        ("authentication", "Autenticación"),
-        ("web", "Web"),
-        ("fim", "Integridad de archivos"),
-        ("malware", "Malware / WebShell"),
-        ("privilege", "Privilegios"),
-        ("attack", "Ataques"),
-        ("active_response", "Bloqueos automáticos"),
-        ("other", "Otros"),
-    ]
+    """Renderiza el mismo summary del reporte clásico con una presentación tipo dashboard."""
+    security_count = summary["security_count"]
+    critical_count = summary["critical_count"]
+    source_ips = summary["source_ips"]
+    agents = summary["agents"]
+    categories = summary["categories"]
+    firewall_rows = summary["firewall_rows"]
+    firewall_ips = summary["firewall_ips"]
 
-    total = find_count(summary, "total", "total_events", "security_events", "events", "alerts")
-    high = find_count(summary, "high_alerts", "high", "high_severity")
-    source_ips = find_count(summary, "source_ips", "ips", "unique_source_ips")
-    systems = find_count(summary, "systems", "agents", "affected_agents")
-
-    # Si el resumen no expone alguno de los cuatro KPIs con ese nombre, derivamos
-    # lo posible desde las categorías ya calculadas por el reporte base.
-    category_values = [(key, category_count(summary, key)) for key, _ in categories]
-    if total == 0:
-        total = sum(value for key, value in category_values if key != "other") + category_count(summary, "other")
-
-    mitre = summary.get("mitre") or summary.get("mitre_techniques") or summary.get("techniques")
-    agents = summary.get("agents") or summary.get("affected_agents") or summary.get("systems")
-    rules = summary.get("rules") or summary.get("top_rules")
-    ips = summary.get("source_ips") or summary.get("ips") or summary.get("top_ips")
-
-    period_end = end.strftime("%d/%m/%Y %H:%M")
-    period = f"{start.strftime('%d/%m/%Y %H:%M')} — {period_end}"
+    period = f"{start.strftime('%d/%m/%Y %H:%M')} — {end.strftime('%d/%m/%Y %H:%M')}"
     now = datetime.now().astimezone().strftime("%d/%m/%Y %H:%M %Z")
 
-    category_rows = [(name, count) for (key, name), (_, count) in zip(categories, category_values) if count]
-    if not category_rows:
-        category_rows = [(name, category_count(summary, key)) for key, name in categories]
+    category_rows = [
+        (CATEGORY_LABELS[key], categories[key]["count"])
+        for key in CATEGORY_LABELS
+        if categories.get(key, {}).get("count", 0)
+    ]
 
-    logo = getattr(report, "LOGO_URL", "")
+    top_agents = agent_rows(agents, 10)
+    top_rules = rule_rows(categories, 12)
+    mitre_rows = report.mitre_rows(summary)
+    firewall_attempts = sum(row["attempts"] for row in firewall_rows)
+
     html_doc = f"""<!doctype html>
-<html lang="{ 'en' if lang == 'en' else 'es' }">
+<html lang="{'en' if lang == 'en' else 'es'}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{css()}</head>
 <body>
 <div class="page">
   <div class="header">
     <div class="brand">
-      {'<img class="logo" src="' + esc(logo) + '" alt="OrangeBox">' if logo else ''}
+      <div class="brand-mark">O</div>
       <div>
-        <h1>📊 OrangeBox Security Dashboard</h1>
-        <div class="subtitle">Resumen visual de actividad y detecciones de Wazuh</div>
+        <div class="brand-name">Orange<span>Box</span></div>
+        <div class="subtitle">Security Operations · Wazuh</div>
+      </div>
+      <div style="margin-left:auto;text-align:right;">
+        <h1>📊 Security Dashboard</h1>
+        <div class="subtitle">Resumen visual de actividad y detecciones</div>
       </div>
     </div>
     <div class="period"><strong>Cliente / grupo:</strong> {esc(group)} &nbsp;·&nbsp; <strong>Período:</strong> {esc(label)}<br>{esc(period)}</div>
   </div>
 
   <div class="grid">
-    <div class="card"><div class="metric-label">Eventos de seguridad</div><div class="metric">{fmt_number(total)}</div><div class="metric-note">Alertas procesadas</div></div>
-    <div class="card"><div class="metric-label">Alta severidad</div><div class="metric">{fmt_number(high)}</div><div class="metric-note">Nivel alto / crítico según Wazuh</div></div>
-    <div class="card"><div class="metric-label">IPs de origen</div><div class="metric">{fmt_number(source_ips)}</div><div class="metric-note">Direcciones válidas observadas</div></div>
-    <div class="card"><div class="metric-label">Sistemas afectados</div><div class="metric">{fmt_number(systems)}</div><div class="metric-note">Agentes con actividad</div></div>
+    <div class="card"><div class="metric-label">Eventos de seguridad</div><div class="metric">{fmt_number(security_count)}</div><div class="metric-note">Misma clasificación del reporte clásico</div></div>
+    <div class="card"><div class="metric-label">Alta severidad</div><div class="metric">{fmt_number(critical_count)}</div><div class="metric-note">Alertas con nivel Wazuh ≥ 13</div></div>
+    <div class="card"><div class="metric-label">IPs de origen</div><div class="metric">{fmt_number(len(source_ips))}</div><div class="metric-note">Direcciones válidas observadas</div></div>
+    <div class="card"><div class="metric-label">Sistemas afectados</div><div class="metric">{fmt_number(len(agents))}</div><div class="metric-note">Agentes con detecciones</div></div>
   </div>
 
   <div class="two">
-    <div class="section">{section_title('Actividad por categoría', 'Distribución de las detecciones clasificadas por el motor del reporte.')}{table(category_rows, 'Categoría', 'Eventos')}</div>
-    <div class="section">{section_title('Sistemas más afectados', 'Agentes con mayor volumen de alertas.')}{table(rows_from_value(agents), 'Sistema', 'Alertas')}</div>
+    <div class="section">
+      {section_title('Actividad por categoría', 'Los mismos contadores generados por load_events() del reporte principal.')}
+      {table(category_rows, 'Categoría', 'Eventos')}
+    </div>
+    <div class="section">
+      {section_title('Sistemas más afectados', 'Ordenados por volumen de detecciones. Se muestra solo el nombre del sistema.')}
+      {table(top_agents, 'Sistema', 'Alertas')}
+    </div>
   </div>
 
   <div class="two">
-    <div class="section">{section_title('Reglas más activas', 'Reglas Wazuh con mayor cantidad de detecciones.')}{table(rows_from_value(rules), 'Regla', 'Alertas')}</div>
-    <div class="section">{section_title('IPs de origen observadas', 'Principales direcciones IP presentes en las alertas.')}{table(rows_from_value(ips), 'IP', 'Alertas')}</div>
+    <div class="section">
+      {section_title('Reglas más activas', 'Agregación directa de las reglas contadas por cada categoría del reporte.')}
+      {table(top_rules, 'Regla', 'Alertas')}
+    </div>
+    <div class="section">
+      {section_title('IPs de origen observadas', 'El reporte clásico conserva estas IPs como conjunto de direcciones válidas.')}
+      {ip_pills(source_ips)}
+    </div>
   </div>
 
-  <div class="section">{section_title('Técnicas MITRE observadas', 'Asociaciones MITRE presentes en las alertas del período.')}{table(rows_from_value(mitre), 'Técnica', 'Detecciones')}</div>
+  <div class="section">
+    {section_title('Técnicas MITRE observadas', 'Misma correlación MITRE recopilada por el reporte clásico.')}
+    {('<table><thead><tr><th>Técnica</th><th>Nombre</th><th>Descripción</th><th class="num">Detecciones</th></tr></thead><tbody>' + ''.join(f'<tr><td><b>{esc(mid)}</b></td><td>{esc(name)}</td><td>{esc(meaning)}</td><td class="num">{fmt_number(count)}</td></tr>' for mid, name, meaning, count in mitre_rows) + '</tbody></table>') if mitre_rows else '<div class="empty">No se encontraron técnicas MITRE ATT&CK en las alertas del período.</div>'}
+  </div>
+
+  <div class="section firewall">
+    {section_title('Bloqueos automáticos', 'Eventos de Active Response firewall-drop registrados por el reporte clásico.', '🛡️')}
+    {f'<div class="metric">{fmt_number(len(firewall_ips))}</div><div class="metric-note">IPs bloqueadas automáticamente · {fmt_number(firewall_attempts)} intentos asociados</div>' if firewall_ips else '<div class="good">No se registraron bloqueos automáticos con una IP de origen válida.</div>'}
+    {table([(f"{row[\'agent_name\']} · Regla {row[\'rule_id\']} · {row[\'description\']}", len(row[\'ips\'])) for row in firewall_rows], 'Sistema / regla', 'IPs bloqueadas') if firewall_rows else ''}
+  </div>
 
   <div class="footer">OrangeBox IT Services · Dashboard generado {esc(now)} · Datos extraídos desde Wazuh</div>
 </div>
@@ -243,15 +271,16 @@ def dashboard_html(report, summary, group, start, end, label, lang="es"):
     return html_doc
 
 
-def send_email(subject, html_body, recipient, sender=DEFAULT_FROM):
-    """Envía el dashboard HTML sin modificar el mecanismo de reportes existente."""
+def send_email(subject, html_body, recipients, sender=DEFAULT_FROM):
+    """Envía el mismo dashboard a todos los destinatarios."""
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = sender
-    msg["To"] = recipient
+    msg["To"] = ", ".join(recipients)
+    msg.attach(MIMEText("OrangeBox Wazuh Security Dashboard.", "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
-        smtp.sendmail(sender, [recipient], msg.as_string())
+        smtp.sendmail(sender, recipients, msg.as_string())
 
 
 def parser():
@@ -270,22 +299,14 @@ def parser():
     p.add_argument("--lang", choices=["es", "en"], default="es")
     p.add_argument("--output", help="Archivo HTML de salida")
     p.add_argument("--archive", action="store_true", help="Guardar también en /var/ossec/reports/archive")
-    p.add_argument("--email", action="append", required=True, help="Destinatario. Puede repetirse o contener varias direcciones separadas por comas.")
+    p.add_argument("--email", action="append", help="Destinatario. Puede repetirse o contener varias direcciones separadas por comas.")
     return p.parse_args()
 
 
 def main():
     args = parser()
-    recipients = []
-    for value in args.email:
-        recipients.extend(r.strip() for r in value.split(",") if r.strip())
-    if not recipients:
-        raise SystemExit("Debe especificar al menos un destinatario")
-    for recipient in recipients:
-        if not re.fullmatch(r"[^\s@]+@[^\s@]+", recipient):
-            raise SystemExit(f"Dirección de correo inválida: {recipient}")
-
     report = load_report_module()
+
     mode = args.date and f"date:{args.date}" or next(
         name for name in (
             "today", "yesterday", "thisweek", "lastweek",
@@ -293,11 +314,18 @@ def main():
         ) if getattr(args, name)
     )
 
+    recipients = []
+    for value in args.email or []:
+        recipients.extend(item.strip() for item in value.split(",") if item.strip())
+    for recipient in recipients:
+        if not re.fullmatch(r"[^\s@]+@[^\s@]+", recipient):
+            raise SystemExit(f"Dirección de correo inválida: {recipient}")
+
     now = datetime.now().astimezone()
     start, end, label = report.period_bounds(mode, now)
     allowed = report.group_members(args.group)
 
-    # ESTA es la misma extracción utilizada por el reporte clásico.
+    # MISMA extracción del reporte clásico: no hay una segunda fuente de datos.
     summary = report.load_events(start, end, allowed)
     body = dashboard_html(report, summary, args.group, start, end, label, args.lang)
 
@@ -314,32 +342,22 @@ def main():
         archive_path.write_text(body, encoding="utf-8")
         print(f"Archivado: {archive_path}")
 
-    subject_prefix = {
-        "today": "Dashboard Diario de Seguridad",
-        "yesterday": "Dashboard Diario de Seguridad",
-        "thisweek": "Dashboard Semanal de Seguridad",
-        "lastweek": "Dashboard Semanal de Seguridad",
-        "thismonth": "Dashboard Mensual de Seguridad",
-        "lastmonth": "Dashboard Mensual de Seguridad",
-        "thisyear": "Dashboard Anual de Seguridad",
-        "lastyear": "Dashboard Anual de Seguridad",
-    }
-    subject = f"📊 [ORANGEBOX] {subject_prefix.get(mode, 'Dashboard de Seguridad')} — {args.group}"
-    sent = []
-    failed = []
-    for recipient in recipients:
-        try:
-            send_email(subject, body, recipient)
-            sent.append(recipient)
-        except Exception as exc:
-            failed.append((recipient, exc))
+    if recipients:
+        subject_prefix = {
+            "today": "Dashboard Diario de Seguridad",
+            "yesterday": "Dashboard Diario de Seguridad",
+            "thisweek": "Dashboard Semanal de Seguridad",
+            "lastweek": "Dashboard Semanal de Seguridad",
+            "thismonth": "Dashboard Mensual de Seguridad",
+            "lastmonth": "Dashboard Mensual de Seguridad",
+            "thisyear": "Dashboard Anual de Seguridad",
+            "lastyear": "Dashboard Anual de Seguridad",
+        }
+        subject = f"📊 [ORANGEBOX] {subject_prefix.get(mode, 'Dashboard de Seguridad')} — {args.group}"
+        send_email(subject, body, recipients)
+        print(f"Destinatarios enviados: {', '.join(recipients)}")
 
-    print(f"Destinatarios enviados: {', '.join(sent) if sent else 'ninguno'}")
-    for recipient, exc in failed:
-        print(f"ERROR enviando a {recipient}: {exc}")
     print(f"Dashboard generado: {output}")
-    if failed:
-        raise SystemExit(1)
 
 
 if __name__ == "__main__":
