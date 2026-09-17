@@ -22,10 +22,13 @@ Estas reglas se consideran inmediatas:
 - `5715` - login SSH exitoso nativo.
 - `10001` - login SSH exitoso OrangeBox.
 - `10004` - `su` hacia root.
+- `10007` - ráfaga de fallos SSH desde red interna / posible movimiento lateral.
 - `10008` - sudo exitoso.
 - `10009` - sudo exitoso.
 
 Además, cualquier alerta que pertenezca al grupo `privilege_escalation_root` se envía inmediatamente.
+
+La regla `10007` utiliza intencionalmente este mecanismo para que un posible movimiento lateral no espere la ventana de agrupación de 10 minutos.
 
 La decisión de usar el grupo para escalamiento es importante: una futura regla de elevación a root no necesita obligatoriamente modificar este script para empezar a recibir tratamiento inmediato.
 
