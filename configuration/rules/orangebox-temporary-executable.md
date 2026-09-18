@@ -26,7 +26,7 @@ Ejemplo típico:
 install -m 755 /dev/null /dev/shm/test
 ```
 
-No se filtra por extensión porque un atacante puede llamar al ejecutable como quiera. Tampoco se inspecciona contenido: esa pega corresponde a otras capas, como YARA.
+No se filtra por extensión porque un atacante puede llamar al ejecutable como quiera. Tampoco se inspecciona contenido: esa evaluación queda para una capa posterior de análisis de contenido. Las firmas YARA versionadas en este repositorio son actualmente experimentales y no están conectadas de forma automática a esta regla.
 
 **Nivel 15:** un ejecutable nuevo en un directorio temporal merece atención inmediata.
 
@@ -65,4 +65,4 @@ Actualmente no hay excepciones autorizadas. Antes de silenciar una alerta hay qu
 - `554`: archivo agregado.
 - `550`: archivo modificado.
 
-Esta capa detecta el comportamiento. No pretende decidir si el archivo es malware; para eso se puede complementar con YARA y otras evidencias.
+Esta capa detecta el comportamiento. No pretende decidir si el archivo es malware; para eso podrá complementarse posteriormente con una capa de análisis de contenido y otras evidencias.
