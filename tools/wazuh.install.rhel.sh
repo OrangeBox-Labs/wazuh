@@ -179,6 +179,8 @@ configure_shorewall() {
 
     # La regla se identifica por el tag ORANGEBOX-FW. No se agrega una segunda
     # regla aunque ya exista una variante equivalente en el archivo.
+    local shorewall_changed=0
+
     if grep -Fq 'ORANGEBOX-FW' /etc/shorewall/rules; then
         ok "Regla ORANGEBOX-FW ya existe en Shorewall; no se modifica."
     else
@@ -208,20 +210,22 @@ EOF
     # "shorewall restart" es el mecanismo requerido en este entorno EL6 aunque "shorewall check"
     # haya validado correctamente la configuración. No hacemos fallar toda
     # la instalación por un reload no soportado/no necesario.
-    if has service && service shorewall status >/dev/null 2>&1; then
-        if shorewall restart >/dev/null 2>&1; then
-            ok "Shorewall recargado con la configuración OrangeBox."
+    if [ "$shorewall_changed" -eq 1 ]; then
+        if has service && service shorewall status >/dev/null 2>&1; then
+            if shorewall restart >/dev/null 2>&1; then
+                ok "Shorewall reiniciado con la configuración OrangeBox."
+            else
+                fail "Se agregó la regla OrangeBox, pero no se pudo reiniciar Shorewall."
+            fi
+        elif has systemctl && systemctl is-active --quiet shorewall 2>/dev/null; then
+            if shorewall restart >/dev/null 2>&1; then
+                ok "Shorewall reiniciado con la configuración OrangeBox."
+            else
+                fail "Se agregó la regla OrangeBox, pero no se pudo reiniciar Shorewall."
+            fi
         else
-            warn "Shorewall está activo pero no se pudo recargar automáticamente. La configuración quedó persistente; aplica 'shorewall restart' manualmente si corresponde."
+            warn "Se agregó la regla OrangeBox, pero Shorewall no está activo; la configuración quedó persistente y será aplicada al iniciar Shorewall."
         fi
-    elif has systemctl && systemctl is-active --quiet shorewall 2>/dev/null; then
-        if shorewall restart >/dev/null 2>&1; then
-            ok "Shorewall recargado con la configuración OrangeBox."
-        else
-            warn "Shorewall está activo pero no se pudo recargar automáticamente. La configuración quedó persistente; aplica 'shorewall restart' manualmente si corresponde."
-        fi
-    else
-        warn "Shorewall está instalado pero no activo; la regla quedó persistente y será aplicada al iniciar Shorewall."
     fi
 }
 
@@ -366,7 +370,7 @@ configure_rsyslog() {
 
     if ! rsyslog_rule_exists; then
         local line
-        line="$(grep -n -E '^\\*\\.info;mail\\.none;authpriv\\.none;cron\\.none[[:space:]].*/var/log/messages' /etc/rsyslog.conf | head -n1 | cut -d: -f1)"
+        line="$(grep -n -E '^\*\.info;mail\.none;authpriv\.none;cron\.none[[:space:]].*/var/log/messages' /etc/rsyslog.conf | head -n1 | cut -d: -f1)"
         [ -n "$line" ] || fail "No se encontró la regla de /var/log/messages."
 
         cp -p /etc/rsyslog.conf "/etc/rsyslog.conf.orangebox-backup.$(date +%Y%m%d%H%M%S)" \
