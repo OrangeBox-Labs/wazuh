@@ -17,6 +17,7 @@ import os
 import re
 import smtplib
 import subprocess
+import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
@@ -32,6 +33,7 @@ SMTP_PORT = 25
 AGENT_GROUPS_BIN = "/var/ossec/bin/agent_groups"
 FIREWALL_RULE = "651"
 FIREWALL_RE = re.compile(r"active-response/bin/firewall-drop:\s*(\{.*\})$")
+WAZUH_OSSEC_CONF = "/var/ossec/etc/ossec.conf"
 LOGO_URL = "https://www.orangebox.cl/obox/img/logo-dark.png"
 
 AUTH_RULES = {"5710", "5712", "5715", "5716", "5720", "5760", "5763", "10001", "10004", "10005", "10006", "10007", "10008", "10009"}
@@ -69,10 +71,10 @@ MITRE_DESCRIPTIONS = {
 }
 
 LABELS_ES = {
-    "report": "Informe de Actividad de Seguridad", "subtitle": "Actividad de seguridad, detecciones y acciones automatizadas de Wazuh", "security_events": "Eventos de seguridad", "high_alerts": "Alertas de alta severidad", "source_ips": "IPs de origen observadas", "systems": "Sistemas afectados", "firewall": "Respuesta automática · Firewall Drop", "firewall_sub": "Intentos detectados y direcciones IP bloqueadas automáticamente.", "agent": "Sistema", "reason": "Motivo", "rule": "Regla", "blocked_ips": "IPs bloqueadas", "attempts": "Intentos detectados", "access": "Intentos de acceso", "web": "Intentos de acceso y exploración web", "fim": "Cambios detectados en archivos", "malware": "Detecciones de malware y archivos sospechosos", "priv": "Escalamiento de privilegios", "attack": "Detecciones clasificadas como intentos de ataque", "mitre": "Técnicas MITRE observadas en las alertas", "technique": "Técnica", "meaning": "Qué significa", "detections": "Alertas asociadas", "agents": "Servidores afectados", "no_firewall": "No se registraron bloqueos automáticos con una IP de origen válida.", "no_activity": "No se registraron detecciones de esta categoría durante el período.", "attack_note": "Esta sección incluye únicamente alertas que el informe clasificó explícitamente como actividad de ataque. Que una técnica MITRE aparezca más abajo no significa por sí sola que exista un ataque confirmado.", "mitre_note": "El contador indica cuántas alertas de Wazuh fueron asociadas a cada técnica MITRE durante el período. No representa necesariamente accesos exitosos, conexiones individuales ni compromisos confirmados.", "firewall_note": "Los intentos detectados son detecciones Wazuh asociadas a las IP que fueron bloqueadas; no equivalen necesariamente a la cantidad bruta de conexiones o solicitudes originales.", "technical_note": "Los identificadores y descripciones de las reglas corresponden al motor de detección Wazuh. La detección de un intento no implica por sí sola que el sistema haya sido comprometido.",
+    "report": "Informe de Actividad de Seguridad", "subtitle": "Actividad de seguridad, detecciones y acciones automatizadas de Wazuh", "security_events": "Eventos de seguridad", "high_alerts": "Alertas de alta severidad", "source_ips": "IPs de origen observadas", "systems": "Sistemas afectados", "firewall": "Respuesta automática · Firewall Drop", "firewall_sub": "Intentos detectados y direcciones IP bloqueadas automáticamente.", "agent": "Sistema", "reason": "Motivo", "rule": "Regla", "blocked_ips": "IPs bloqueadas", "attempts": "Intentos detectados", "access": "Intentos de acceso", "web": "Intentos de acceso y exploración web", "fim": "Cambios detectados en archivos", "malware": "Detecciones de malware y archivos sospechosos", "priv": "Escalamiento de privilegios", "attack": "Detecciones clasificadas como intentos de ataque", "mitre": "Técnicas MITRE observadas en las alertas", "technique": "Técnica", "meaning": "Qué significa", "detections": "Alertas asociadas", "agents": "Servidores afectados", "no_firewall": "No se registraron bloqueos automáticos con una IP de origen válida.", "no_activity": "No se registraron detecciones de esta categoría durante el período.", "attack_note": "Esta sección incluye únicamente alertas que el informe clasificó explícitamente como actividad de ataque. Que una técnica MITRE aparezca más abajo no significa por sí sola que exista un ataque confirmado.", "mitre_note": "El contador indica cuántas alertas de Wazuh fueron asociadas a cada técnica MITRE durante el período. No representa necesariamente accesos exitosos, conexiones individuales ni compromisos confirmados.", "firewall_note": "Los intentos detectados son detecciones Wazuh asociadas a las IP que fueron bloqueadas; no equivalen necesariamente a la cantidad bruta de conexiones o solicitudes originales.", "recidivist": "IPs reincidentes en bloqueos automáticos", "recidivist_sub": "IPs que activaron firewall-drop más de una vez durante el período.", "block_count": "Bloqueos", "trigger_rules": "Reglas que activaron el bloqueo", "ban_duration": "Tiempo de baneo configurado", "technical_note": "Los identificadores y descripciones de las reglas corresponden al motor de detección Wazuh. La detección de un intento no implica por sí sola que el sistema haya sido comprometido.",
 }
 LABELS_EN = {
-    "report": "Security Activity Report", "subtitle": "Security activity, detections and automated Wazuh responses", "security_events": "Security events", "high_alerts": "High-severity alerts", "source_ips": "Observed source IPs", "systems": "Affected systems", "firewall": "Automated response · Firewall Drop", "firewall_sub": "Detected attempts and IP addresses blocked automatically.", "agent": "System", "reason": "Reason", "rule": "Rule", "blocked_ips": "Blocked IPs", "attempts": "Detected attempts", "access": "Access attempts", "web": "Web access and reconnaissance attempts", "fim": "Detected file changes", "malware": "Malware and suspicious file detections", "priv": "Privilege escalation", "attack": "Detections classified as attack attempts", "mitre": "MITRE techniques observed in alerts", "technique": "Technique", "meaning": "What it means", "detections": "Associated alerts", "agents": "Most affected systems", "no_firewall": "No automatic blocks with a valid source IP were recorded.", "no_activity": "No detections were recorded for this category during the period.", "attack_note": "This section includes only alerts explicitly classified by the report as attack activity. The appearance of a MITRE technique below does not by itself mean that a confirmed attack occurred.", "mitre_note": "The counter shows how many Wazuh alerts were associated with each MITRE technique during the period. It does not necessarily represent successful logins, individual connections, or confirmed compromises.", "firewall_note": "Detected attempts are Wazuh detections associated with the IPs that were blocked; they do not necessarily equal the raw number of original connections or requests.", "technical_note": "Rule identifiers and descriptions come from the Wazuh detection engine. Detecting an attempt does not by itself mean that the system was compromised.",
+    "report": "Security Activity Report", "subtitle": "Security activity, detections and automated Wazuh responses", "security_events": "Security events", "high_alerts": "High-severity alerts", "source_ips": "Observed source IPs", "systems": "Affected systems", "firewall": "Automated response · Firewall Drop", "firewall_sub": "Detected attempts and IP addresses blocked automatically.", "agent": "System", "reason": "Reason", "rule": "Rule", "blocked_ips": "Blocked IPs", "attempts": "Detected attempts", "access": "Access attempts", "web": "Web access and reconnaissance attempts", "fim": "Detected file changes", "malware": "Malware and suspicious file detections", "priv": "Privilege escalation", "attack": "Detections classified as attack attempts", "mitre": "MITRE techniques observed in alerts", "technique": "Technique", "meaning": "What it means", "detections": "Associated alerts", "agents": "Most affected systems", "no_firewall": "No automatic blocks with a valid source IP were recorded.", "no_activity": "No detections were recorded for this category during the period.", "attack_note": "This section includes only alerts explicitly classified by the report as attack activity. The appearance of a MITRE technique below does not by itself mean that a confirmed attack occurred.", "mitre_note": "The counter shows how many Wazuh alerts were associated with each MITRE technique during the period. It does not necessarily represent successful logins, individual connections, or confirmed compromises.", "firewall_note": "Detected attempts are Wazuh detections associated with the IPs that were blocked; they do not necessarily equal the raw number of original connections or requests.", "recidivist": "IPs with repeated automatic blocks", "recidivist_sub": "IPs that triggered firewall-drop more than once during the period.", "block_count": "Blocks", "trigger_rules": "Rules that triggered the block", "ban_duration": "Configured ban time", "technical_note": "Rule identifiers and descriptions come from the Wazuh detection engine. Detecting an attempt does not by itself mean that the system was compromised.",
 }
 
 def labels(lang): return LABELS_EN if lang == "en" else LABELS_ES
@@ -93,6 +95,40 @@ def extract_firewall_payload(full_log):
     if not match: return None
     try: return json.loads(match.group(1))
     except json.JSONDecodeError: return None
+
+def load_firewall_timeouts():
+    """Lee desde ossec.conf el tiempo configurado para firewall-drop."""
+    timeouts = {}
+    try:
+        root = ET.parse(WAZUH_OSSEC_CONF).getroot()
+    except (OSError, ET.ParseError):
+        return timeouts
+    for response in root.findall(".//active-response"):
+        if response.findtext("command", "").strip() != "firewall-drop":
+            continue
+        rules_id = response.findtext("rules_id", "").strip()
+        timeout = response.findtext("timeout", "").strip()
+        if not rules_id or not timeout:
+            continue
+        try:
+            seconds = int(timeout)
+        except ValueError:
+            continue
+        for rule_id in re.split(r"\s*,\s*", rules_id):
+            if rule_id:
+                timeouts[rule_id] = seconds
+    return timeouts
+
+def format_duration(seconds):
+    if seconds is None:
+        return "No disponible"
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds % 3600 == 0:
+        return f"{seconds // 3600} h"
+    if seconds % 60 == 0:
+        return f"{seconds // 60} min"
+    return f"{seconds}s"
 
 def period_bounds(mode, now):
     today = now.date()
@@ -251,7 +287,7 @@ def load_events(start,end,allowed):
     security_count=0; critical_count=0; source_ips=set(); agents=Counter()
     agent_stats=defaultdict(lambda: {"events":0, "high":0, "ips":set(), "attacks":0})
     categories={name:{"count":0,"ips":set(),"agents":set(),"rules":Counter(),"rule_agents":defaultdict(set)} for name in ("authentication","web","fim","malware","privilege","attack")}
-    mitre_counts=Counter(); mitre_names={}; firewall_ips=set(); firewall_rows=defaultdict(set); firewall_attempts=Counter(); timeline=Counter()
+    mitre_counts=Counter(); mitre_names={}; firewall_ips=set(); firewall_rows=defaultdict(set); firewall_attempts=Counter(); firewall_recurrence=Counter(); firewall_rules_by_ip=defaultdict(set); firewall_timeouts=load_firewall_timeouts(); timeline=Counter()
     seen_day=None; seen=set(); today=datetime.now().date()
     for path in files:
         if path == Path(ALERTS_FILE): file_day=today
@@ -294,8 +330,11 @@ def load_events(start,end,allowed):
                     rule_id=str(alert_rule.get("id","unknown"))
                     description=alert_rule.get("description","Firewall Drop")
                     row_key=(agent_id,agent_name,rule_id,description)
-                    firewall_rows[row_key].add(str(src))
-                    firewall_ips.add(str(src))
+                    src_str=str(src)
+                    firewall_rows[row_key].add(src_str)
+                    firewall_ips.add(src_str)
+                    firewall_recurrence[src_str] += 1
+                    firewall_rules_by_ip[src_str].add((rule_id,description))
                 continue
             outer_ts=parse_timestamp(outer.get("timestamp"))
             if not outer_ts or outer_ts<start or outer_ts>=end: continue
@@ -332,7 +371,7 @@ def load_events(start,end,allowed):
         agent_id,agent_name,rule_id,description=key; attempts=sum(firewall_attempts[(agent_id,rule_id,ip)] for ip in ips)
         if attempts==0: attempts=len(ips)
         firewall_result.append({"agent_id":agent_id,"agent_name":agent_name,"rule_id":rule_id,"description":description,"ips":sorted(ips,key=lambda v:(ipaddress.ip_address(v).version,ipaddress.ip_address(v))),"attempts":attempts})
-    return {"security_count":security_count,"critical_count":critical_count,"source_ips":source_ips,"agents":agents,"agent_stats":agent_stats,"categories":categories,"mitre_counts":mitre_counts,"mitre_names":mitre_names,"firewall_ips":firewall_ips,"firewall_rows":sorted(firewall_result,key=lambda r:r["agent_name"].lower()),"timeline":timeline}
+    return {"security_count":security_count,"critical_count":critical_count,"source_ips":source_ips,"agents":agents,"agent_stats":agent_stats,"categories":categories,"mitre_counts":mitre_counts,"mitre_names":mitre_names,"firewall_ips":firewall_ips,"firewall_rows":sorted(firewall_result,key=lambda r:r["agent_name"].lower()),"firewall_recurrence":firewall_recurrence,"firewall_rules_by_ip":firewall_rules_by_ip,"firewall_timeouts":firewall_timeouts,"timeline":timeline}
 
 def section_rows(info):
     rows=[]
@@ -379,6 +418,28 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
         page.append("</table></td></tr>")
     else: page.append(f"<tr><td style='padding:10px 14px;color:#147a4a;font-size:12px;'>{esc(L['no_firewall'])}</td></tr>")
     page.append(f"<tr><td style='background:#edf6fb;border-left:4px solid {orange};padding:10px 13px;color:#49616b;font-size:12px;'><b>{len(firewall_ips):,}</b> {esc(L['blocked_ips'].lower())} automáticamente · <b>{sum(row['attempts'] for row in firewall_rows):,}</b> {esc(L['attempts'].lower())} asociados a estos bloqueos.</td></tr><tr><td style='padding:0 14px 12px;color:#78909c;font-size:11px;'>{esc(L['firewall_note'])}</td></tr>")
+    page.append(section_close())
+
+    # IPs con más de una ejecución real de firewall-drop durante el período.
+    firewall_recurrence=summary["firewall_recurrence"]
+    firewall_rules_by_ip=summary["firewall_rules_by_ip"]
+    firewall_timeouts=summary["firewall_timeouts"]
+    recidivists=[ip for ip,count in firewall_recurrence.items() if count > 1]
+    page.append(section_open("🔁",L["recidivist"],L["recidivist_sub"]))
+    if recidivists:
+        recidivists.sort(key=lambda ip:(-firewall_recurrence[ip], ipaddress.ip_address(ip)))
+        page.append("<tr><td style='padding:0 8px 8px;overflow-wrap:anywhere;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>")
+        page.append(f"<tr><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>IP</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['block_count'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['trigger_rules'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['ban_duration'])}</td></tr>")
+        for src in recidivists:
+            rules=sorted(firewall_rules_by_ip[src], key=lambda item:item[0])
+            rule_text="<br>".join(f"<span style='font-family:monospace;color:#d65d00;font-weight:bold;'>{esc(rule_id)}</span> — {esc(description)}" for rule_id,description in rules)
+            durations=sorted({format_duration(firewall_timeouts.get(rule_id)) for rule_id,_ in rules})
+            duration_text=", ".join(durations)
+            page.append(f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-size:12px;font-weight:bold;'>{esc(src)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{firewall_recurrence[src]:,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;line-height:1.4;overflow-wrap:anywhere;'>{rule_text}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;white-space:nowrap;'>{esc(duration_text)}</td></tr>")
+        page.append("</table></td></tr>")
+        page.append(f"<tr><td style='padding:0 14px 12px;color:#78909c;font-size:11px;'>El tiempo mostrado corresponde al <b>timeout configurado en Wazuh</b> para cada regla de Active Response; no representa necesariamente el tiempo restante de un bloqueo histórico.</td></tr>")
+    else:
+        page.append("<tr><td style='padding:10px 14px;color:#78909c;font-size:12px;'>No hubo IPs con más de una ejecución de firewall-drop durante el período.</td></tr>")
     page.append(section_close())
     section_labels=[("🔐",L["access"],"authentication"),("🌐",L["web"],"web"),("📁",L["fim"],"fim"),("🦠",L["malware"],"malware"),("🔑",L["priv"],"privilege"),("🎯",L["attack"],"attack")]
     for icon,label,category in section_labels:
