@@ -361,21 +361,11 @@ install_agent() {
     echo "==> $info"
     curl -fL -o "/tmp/$rpm_file" "$url" || fail "Falló la descarga."
 
-    if agent_installed; then
-        echo "==> Reparando/reinstalando wazuh-agent en el filesystem dedicado..."
-        WAZUH_MANAGER="$MANAGER" \
-        WAZUH_AGENT_GROUP="$GROUP" \
-        WAZUH_AGENT_NAME="$AGENT_NAME" \
-        WAZUH_REGISTRATION_PASSWORD="$PASSWORD" \
-        rpm -Uvh --replacepkgs "/tmp/$rpm_file" \
-        || fail "Falló la reinstalación de wazuh-agent."
-    else
-        echo "==> Instalando wazuh-agent con enrolamiento..."
-        WAZUH_MANAGER="$MANAGER" WAZUH_AGENT_GROUP="$GROUP" \
-        WAZUH_AGENT_NAME="$AGENT_NAME" WAZUH_REGISTRATION_PASSWORD="$PASSWORD" \
-        rpm -ihv "/tmp/$rpm_file" \
-        || fail "Falló la instalación de wazuh-agent."
-    fi
+    echo "==> Instalando wazuh-agent con enrolamiento..."
+    WAZUH_MANAGER="$MANAGER" WAZUH_AGENT_GROUP="$GROUP" \
+    WAZUH_AGENT_NAME="$AGENT_NAME" WAZUH_REGISTRATION_PASSWORD="$PASSWORD" \
+    rpm -ihv "/tmp/$rpm_file" \
+    || fail "Falló la instalación de wazuh-agent."
 
     rm -f "/tmp/$rpm_file"
     agent_installed || fail "Wazuh Agent no quedó instalado."
@@ -756,14 +746,10 @@ echo "============================================================"
 
 detect_platform
 
-if agent_usable; then
-    ok "Wazuh Agent ya instalado y filesystem /var/ossec correcto: $(agent_version)"
+if agent_installed; then
+    ok "Wazuh Agent ya instalado: $(agent_version)"
 else
-    if agent_installed; then
-        warn "Wazuh Agent está instalado pero /var/ossec no es utilizable o client.keys no existe; se reparará."
-    else
-        warn "Wazuh Agent no está instalado."
-    fi
+    warn "Wazuh Agent no está instalado."
     install_agent
 fi
 
@@ -771,7 +757,7 @@ configure_firewall
 configure_logging
 restart_agent
 
-agent_usable || fail "Verificación final: Wazuh Agent o filesystem /var/ossec no quedaron correctamente configurados."
+agent_installed || fail "Verificación final: Wazuh Agent no quedó correctamente instalado."
 
 if [ "$LOGGING_BACKEND" = "rsyslog" ]; then
     [ -f "$FIREWALL_LOG" ] || fail "Verificación final: log ausente."
