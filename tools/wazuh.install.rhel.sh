@@ -202,7 +202,7 @@ write_ossec_fstab() {
 
         awk -v uuid="$uuid" -v fstype="$fstype" '
             $0 ~ /^[[:space:]]*[^#[:space:]][^[:space:]]*[[:space:]]+\/var\/ossec[[:space:]]/ {
-                print "UUID=" uuid " /var/ossec " fstype " defaults,exec,nosuid,nodev 0 0"
+                print "UUID=" uuid " /var/ossec " fstype " nodev,nosuid 1 2"
                 next
             }
             { print }
@@ -213,7 +213,7 @@ write_ossec_fstab() {
             || fail "No se pudo actualizar /etc/fstab."
     else
         backup_fstab
-        printf 'UUID=%s /var/ossec %s defaults,exec,nosuid,nodev 0 0\n' \
+        printf 'UUID=%s /var/ossec %s nodev,nosuid 1 2\n' \
             "$uuid" "$fstype" >> /etc/fstab \
             || fail "No se pudo agregar /var/ossec a /etc/fstab."
     fi
@@ -363,22 +363,20 @@ install_agent() {
 
     if agent_installed; then
         echo "==> Reparando/reinstalando wazuh-agent en el filesystem dedicado..."
-        WAZUH_MANAGER="$MANAGER" WAZUH_REGISTRATION_SERVER="$MANAGER" \
-        WAZUH_REGISTRATION_PASSWORD="$PASSWORD" WAZUH_AGENT_NAME="$AGENT_NAME" \
-        WAZUH_AGENT_GROUP="$GROUP" rpm -Uvh --replacepkgs "/tmp/$rpm_file" \
+        WAZUH_MANAGER="$MANAGER" \
+        WAZUH_AGENT_GROUP="$GROUP" \
+        WAZUH_AGENT_NAME="$AGENT_NAME" \
+        WAZUH_REGISTRATION_PASSWORD="$PASSWORD" \
+        rpm -Uvh --replacepkgs "/tmp/$rpm_file" \
         || fail "Falló la reinstalación de wazuh-agent."
-    elif has yum; then
-        WAZUH_MANAGER="$MANAGER" WAZUH_REGISTRATION_SERVER="$MANAGER" \
-        WAZUH_REGISTRATION_PASSWORD="$PASSWORD" WAZUH_AGENT_NAME="$AGENT_NAME" \
-        WAZUH_AGENT_GROUP="$GROUP" yum localinstall -y "/tmp/$rpm_file" \
-        || fail "Falló yum."
-    elif has dnf; then
-        WAZUH_MANAGER="$MANAGER" WAZUH_REGISTRATION_SERVER="$MANAGER" \
-        WAZUH_REGISTRATION_PASSWORD="$PASSWORD" WAZUH_AGENT_NAME="$AGENT_NAME" \
-        WAZUH_AGENT_GROUP="$GROUP" dnf install -y "/tmp/$rpm_file" \
-        || fail "Falló dnf."
     else
-        fail "No existe yum ni dnf."
+        echo "==> Instalando wazuh-agent con enrolamiento..."
+        WAZUH_MANAGER="$MANAGER" \
+        WAZUH_AGENT_GROUP="$GROUP" \
+        WAZUH_AGENT_NAME="$AGENT_NAME" \
+        WAZUH_REGISTRATION_PASSWORD="$PASSWORD" \
+        rpm -ihv "/tmp/$rpm_file" \
+        || fail "Falló la instalación de wazuh-agent."
     fi
 
     rm -f "/tmp/$rpm_file"
