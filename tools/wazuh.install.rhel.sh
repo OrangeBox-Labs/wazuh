@@ -169,21 +169,25 @@ restart_agent() {
 # 2. Firewall: firewalld si está activo, si no iptables
 # ---------------------------------------------------------------------------
 
+# iptables -C no es suficientemente portable para todas las versiones antiguas
+# soportadas (especialmente EL6). Validamos sobre la representación de reglas
+# que entrega iptables -L/-S en vez de depender de -C.
 iptables_input_rule_exists() {
-    iptables -C INPUT \
-        -p tcp --tcp-flags SYN SYN \
-        ! -s 127.0.0.0/8 \
-        -j ORANGEBOX-FW >/dev/null 2>&1
+    iptables -L INPUT -n --line-numbers 2>/dev/null |
+        grep -E '[[:space:]]ORANGEBOX-FW[[:space:]]' >/dev/null 2>&1
 }
 
 iptables_log_rule_exists() {
-    iptables -C ORANGEBOX-FW \
-        -m limit --limit 20/second --limit-burst 40 \
-        -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4 >/dev/null 2>&1
+    iptables -L ORANGEBOX-FW -n 2>/dev/null |
+        grep -F 'LOG' |
+        grep -F 'ORANGEBOX-FW:' |
+        grep -F '20/sec' |
+        grep -F 'burst 40' >/dev/null 2>&1
 }
 
 iptables_return_rule_exists() {
-    iptables -C ORANGEBOX-FW -j RETURN >/dev/null 2>&1
+    iptables -L ORANGEBOX-FW -n 2>/dev/null |
+        grep -E '[[:space:]]RETURN[[:space:]]' >/dev/null 2>&1
 }
 
 iptables_config_ok() {
