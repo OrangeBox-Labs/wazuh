@@ -383,9 +383,6 @@ def build_pdf(path, summary, group, start, end, label, report):
     )
     doc.addPageTemplates([])
 
-    from reportlab.platypus import PageTemplate
-    doc.addPageTemplates([PageTemplate(id="dashboard", frames=[frame])])
-
     story = []
     story.extend(header_table(group, label, period, styles))
 
@@ -611,7 +608,9 @@ def build_pdf(path, summary, group, start, end, label, report):
         canvas.drawRightString(landscape(A4)[0] - 12 * mm, 2.5 * mm, f"Página {doc.page}")
         canvas.restoreState()
 
-    doc.build(story, onFirstPage=footer, onLaterPages=footer)
+    from reportlab.platypus import PageTemplate
+    doc.addPageTemplates([PageTemplate(id="dashboard", frames=[frame], onPage=footer)])
+    doc.build(story)
 
 
 def send_email(subject, pdf_path, recipients, sender=DEFAULT_FROM):
