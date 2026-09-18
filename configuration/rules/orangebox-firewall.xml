@@ -140,7 +140,7 @@
         No activa bloqueo automatico porque no existe una unica IP origen
         que represente al conjunto del trafico.
     -->
-    <rule id="10455" level="11" frequency="80" timeframe="10">
+    <rule id="10455" level="12" frequency="80" timeframe="10">
         <if_matched_sid>10450</if_matched_sid>
         <different_srcip />
         <same_dstport />
