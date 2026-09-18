@@ -375,7 +375,7 @@ configure_rsyslog() {
         cp -p /etc/rsyslog.conf "/etc/rsyslog.conf.orangebox-backup.$(date +%Y%m%d%H%M%S)" \
             || fail "No se pudo respaldar rsyslog.conf."
 
-        awk -v n="$line" 'NR == n { print ":msg, contains, \"ORANGEBOX-FW\" -/var/log/orangebox-firewall.log"; print "stop" } { print }' \
+        awk -v n="$line" 'NR == n { print ":msg, contains, \"ORANGEBOX-FW\" -/var/log/orangebox-firewall.log"; print "& ~" } { print }' \
             /etc/rsyslog.conf > /etc/rsyslog.conf.orangebox.tmp \
             || fail "No se pudo preparar el filtro de rsyslog."
 
