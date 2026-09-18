@@ -209,222 +209,200 @@ def dashboard_html(summary, group, start, end, label, report):
     )
     generated = now.strftime("%d/%m/%Y %H:%M %Z")
 
-    category_data = category_rows(categories)
-    rules_data = rules_rows(categories, 5)
-    agents_data = agent_rows(agents, 5)
-    mitre_data = mitre_chart_rows(summary, report, 5)
-
-    firewall_attempts = sum(row["attempts"] for row in firewall_data)
     blocked_ips = len(firewall_ips)
+    firewall_attempts = sum(row["attempts"] for row in firewall_data)
     critical_pct = round((critical_count / security_count) * 100, 1) if security_count else 0
 
-    category_total = sum(count for _label, count in category_data) or 1
+    category_data = category_rows(categories)
+    rules_data = rules_rows(categories, 5)
+    systems_data = agent_rows(agents, 5)
+    mitre_data = mitre_chart_rows(summary, report, 5)
 
-    def compact_bars(rows, max_rows=5):
-        rows = rows[:max_rows]
+    def visual_bar(count, max_value, height=8, color=None):
+        color = color or COLORS["orange"]
+        width = pct(count, max_value)
+        if width < 3 and count:
+            width = 3
+        return (
+            f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
+            f"<tr><td style='background:{COLORS['track']};height:{height}px;font-size:1px;line-height:{height}px;'>"
+            f"<table role='presentation' cellpadding='0' cellspacing='0' border='0' width='{width}%'>"
+            f"<tr><td style='background:{color};height:{height}px;font-size:1px;line-height:{height}px;'>&nbsp;</td></tr>"
+            f"</table></td></tr></table>"
+        )
+
+    # Mantiene la lectura del informe, pero la presenta como tarjetas y gráficos.
+    category_total = sum(count for _label, count in category_data) or 1
+    max_category = max((count for _label, count in category_data), default=1)
+
+    category_cards = []
+    for label_text, count in category_data:
+        share = round((count / category_total) * 100, 1) if category_total else 0
+        category_cards.append(
+            f"<td width='33.33%' valign='top' style='padding:3px;'>"
+            f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+            f"style='background:#f7f9fa;border:1px solid {COLORS['border']};'>"
+            f"<tr><td style='padding:10px 10px 3px;color:{COLORS['text']};font-size:11px;font-weight:bold;'>{esc(label_text)}</td></tr>"
+            f"<tr><td style='padding:0 10px;color:{COLORS['orange']};font-size:21px;font-weight:bold;'>{num(count)}</td></tr>"
+            f"<tr><td style='padding:3px 10px 4px;color:{COLORS['muted']};font-size:9px;'>{share}% del total</td></tr>"
+            f"<tr><td style='padding:0 10px 10px;'>{visual_bar(count, max_category, 7)}</td></tr>"
+            f"</table></td>"
+        )
+
+    def ranked_cards(rows, title_color=None):
+        title_color = title_color or COLORS["orange"]
         if not rows:
             return (
-                f"<div style='padding:12px 4px;color:{COLORS['muted']};"
-                "font-size:10px;'>Sin datos para el período.</div>"
+                f"<div style='padding:14px;color:{COLORS["muted"]};font-size:10px;'>"
+                "Sin datos para el período.</div>"
             )
-
-        max_value = max(int(count) for _, count in rows) or 1
-        parts = [
-            "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
-        ]
-        for index, (label, count) in enumerate(rows):
-            width = pct(count, max_value)
-            if width < 3 and count:
-                width = 3
-            border = "" if index == 0 else "border-top:1px solid #edf0f2;"
-            shown = label if len(str(label)) <= 34 else f"{str(label)[:31]}…"
-            parts.append(
+        max_value = max(int(count) for _label, count in rows) or 1
+        blocks = []
+        for index, (label_text, count) in enumerate(rows):
+            shown = str(label_text)
+            if len(shown) > 31:
+                shown = shown[:28] + "…"
+            blocks.append(
+                f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+                f"style='margin-bottom:5px;'>"
                 f"<tr>"
-                f"<td width='45%' valign='middle' style='{border}padding:7px 5px 7px 2px;"
-                f"font-size:10px;color:{COLORS['text']};overflow-wrap:anywhere;'>"
+                f"<td width='7%' style='padding:5px 3px;color:{title_color};font-size:11px;font-weight:bold;'>"
+                f"{index + 1}</td>"
+                f"<td width='61%' style='padding:5px 3px;color:{COLORS["text"]};font-size:10px;overflow-wrap:anywhere;'>"
                 f"<b>{esc(shown)}</b></td>"
-                f"<td width='40%' valign='middle' style='{border}padding:7px 5px;'>"
-                f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
-                f"<tr><td style='background:{COLORS['track']};height:7px;font-size:1px;line-height:7px;'>"
-                f"<table role='presentation' cellpadding='0' cellspacing='0' border='0' width='{width}%'>"
-                f"<tr><td style='background:{COLORS['orange']};height:7px;font-size:1px;line-height:7px;'>&nbsp;</td></tr>"
-                f"</table></td></tr></table></td>"
-                f"<td width='15%' align='right' valign='middle' style='{border}padding:7px 2px;"
-                f"font-size:10px;font-weight:bold;color:{COLORS['text']};white-space:nowrap;'>"
-                f"{num(count)}</td></tr>"
+                f"<td width='20%' style='padding:5px 4px;'>{visual_bar(count, max_value, 6, title_color)}</td>"
+                f"<td width='12%' align='right' style='padding:5px 2px;color:{COLORS["text"]};font-size:10px;font-weight:bold;'>"
+                f"{num(count)}</td>"
+                f"</tr></table>"
             )
-        parts.append("</table>")
-        return "".join(parts)
+        return "".join(blocks)
 
-    category_chart = compact_bars(
-        [
-            (
-                f"{icon} {label} · {pct(count, category_total)}%",
-                count,
-            )
-            for label, count in category_data
-            for icon, _display in [(next((v[0] for k, v in CATEGORIES.items() if v[1] == label), ""), label)]
-        ],
-        6,
+    def box(title, inner, width="50%", accent=None):
+        accent = accent or COLORS["orange"]
+        return (
+            f"<td width='{width}' valign='top' style='padding:4px;'>"
+            f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+            f"style='background:{COLORS["white"]};border:1px solid {COLORS["border"]};'>"
+            f"<tr><td style='border-top:4px solid {accent};padding:10px 11px 7px;"
+            f"color:{COLORS["text"]};font-size:14px;font-weight:bold;'>{esc(title)}</td></tr>"
+            f"<tr><td style='padding:0 10px 10px;'>{inner}</td></tr>"
+            "</table></td>"
+        )
+
+    # KPI principal: cuatro números, sin párrafos intermedios.
+    kpis = (
+        "<tr><td style='padding:0 6px 9px;'>"
+        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>"
+        kpi("Eventos", security_count, "detecciones"),
+        kpi("Alta severidad", critical_count, "nivel Wazuh ≥ 13"),
+        kpi("IPs atacantes", len(source_ips), "orígenes observados"),
+        kpi("IPs bloqueadas", blocked_ips, "firewall-drop", "danger"),
+        "</tr></table></td></tr>"
     )
 
-    # En este dashboard, las tarjetas inferiores contienen solo el Top 5.
-    rules_chart = compact_bars(rules_data, 5)
-    systems_chart = compact_bars(agents_data, 5)
-    mitre_chart = compact_bars(mitre_data, 5)
+    category_rows_html = (
+        "<tr><td style='padding:0 6px 8px;'>"
+        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>"
+        + "".join(category_cards[:3])
+        + "</tr><tr>"
+        + "".join(category_cards[3:6])
+        + "</tr></table></td></tr>"
+    )
 
-    def panel(title, subtitle, inner, width="33.33%"):
-        return (
-            f"<td width='{width}' valign='top' style='padding:0 4px 8px;'>"
-            f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
-            f"style='height:100%;background:{COLORS['white']};border:1px solid {COLORS['border']};'>"
-            f"<tr><td style='background:#f1f5f7;border-top:3px solid {COLORS['orange']};"
-            f"padding:10px 10px 6px;color:{COLORS['text']};font-size:13px;font-weight:bold;'>"
-            f"{esc(title)}</td></tr>"
-            f"<tr><td style='padding:0 10px 4px;color:{COLORS['muted']};font-size:9px;'>"
-            f"{esc(subtitle)}</td></tr>"
-            f"<tr><td style='padding:0 8px 8px;'>{inner}</td></tr></table></td>"
-        )
-
-    if firewall_ips:
-        firewall_card = (
+    if blocked_ips:
+        blocked_inner = (
             f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
-            f"<tr>"
-            f"<td width='50%' valign='top' style='padding:0 4px 0 0;'>"
-            f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
-            f"style='background:{COLORS['danger_dark']};'>"
-            f"<tr><td align='center' style='padding:15px 5px 2px;color:#ffb39e;"
-            f"font-size:30px;font-weight:bold;'>{num(blocked_ips)}</td></tr>"
-            f"<tr><td align='center' style='padding:0 5px 3px;color:#fff;font-size:10px;"
-            f"font-weight:bold;text-transform:uppercase;'>IPs atacantes bloqueadas</td></tr>"
-            f"<tr><td align='center' style='padding:0 5px 13px;color:#ffdcd3;font-size:9px;'>"
-            f"firewall-drop / Active Response</td></tr></table></td>"
-            f"<td width='50%' valign='top' style='padding:0 0 0 4px;'>"
-            f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
-            f"style='background:#f7f0ee;border:1px solid #ead6d1;'>"
-            f"<tr><td align='center' style='padding:15px 5px 2px;color:{COLORS['danger']};"
-            f"font-size:30px;font-weight:bold;'>{num(firewall_attempts)}</td></tr>"
-            f"<tr><td align='center' style='padding:0 5px 3px;color:{COLORS['text']};font-size:10px;"
-            f"font-weight:bold;text-transform:uppercase;'>Intentos asociados</td></tr>"
-            f"<tr><td align='center' style='padding:0 5px 13px;color:{COLORS['muted']};font-size:9px;'>"
-            f"detectados antes del bloqueo</td></tr></table></td>"
-            f"</tr></table>"
+            f"<tr><td align='center' style='padding:6px 4px 0;color:{COLORS["danger"]};font-size:42px;font-weight:bold;line-height:1;'>"
+            f"{num(blocked_ips)}</td></tr>"
+            f"<tr><td align='center' style='padding:3px 4px 1px;color:{COLORS["text"]};font-size:10px;font-weight:bold;text-transform:uppercase;'>"
+            "IPs atacantes bloqueadas</td></tr>"
+            f"<tr><td align='center' style='padding:0 4px 10px;color:{COLORS["muted"]};font-size:9px;'>"
+            f"{num(firewall_attempts)} intentos asociados · Active Response</td></tr>"
+            "</table>"
         )
     else:
-        firewall_card = (
-            f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
-            f"style='background:#f6faf8;border:1px solid #dcebe3;'>"
-            f"<tr><td align='center' style='padding:18px 10px;color:{COLORS['good']};"
-            f"font-size:12px;font-weight:bold;'>Sin bloqueos automáticos en el período</td></tr>"
-            f"</table>"
+        blocked_inner = (
+            f"<div style='padding:18px 5px;text-align:center;color:{COLORS["good"]};font-size:12px;font-weight:bold;'>"
+            "0 IPs bloqueadas en el período</div>"
         )
+
+    posture_inner = (
+        f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
+        f"<tr><td width='50%' valign='top' style='padding:4px 8px 4px 0;'>"
+        f"<div style='font-size:27px;font-weight:bold;color:{COLORS["orange"]};'>{critical_pct}%</div>"
+        f"<div style='font-size:9px;color:{COLORS["muted"]};text-transform:uppercase;'>alta severidad</div>"
+        f"</td><td width='50%' valign='top' style='padding:4px 0 4px 8px;'>"
+        f"<div style='font-size:27px;font-weight:bold;color:{COLORS["text"]};'>{num(len(agents))}</div>"
+        f"<div style='font-size:9px;color:{COLORS["muted"]};text-transform:uppercase;'>sistemas activos</div>"
+        f"</td></tr></table>"
+    )
+
+    top_panels = (
+        "<tr><td style='padding:0 6px 2px;'>"
+        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>"
+        + box("Top 5 sistemas", ranked_cards(systems_data))
+        + box("Top 5 reglas", ranked_cards(rules_data))
+        + "</tr></table></td></tr>"
+        "<tr><td style='padding:0 6px 8px;'>"
+        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>"
+        + box("Top 5 MITRE ATT&CK", ranked_cards(mitre_data), "50%")
+        + box("Indicadores de seguridad", posture_inner, "50%")
+        + "</tr></table></td></tr>"
+    )
 
     parts = [
         "<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1.0'></head>",
-        f"<body style='margin:0;padding:0;background:{COLORS['page']};"
-        "font-family:Arial,Helvetica,sans-serif;color:#263238;'>",
+        f"<body style='margin:0;padding:0;background:{COLORS['page']};font-family:Arial,Helvetica,sans-serif;color:{COLORS['text']};'>",
         "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
-        "<tr><td align='center' style='padding:10px;'>",
+        "<tr><td align='center' style='padding:8px;'>",
         f"<table role='presentation' width='720' cellpadding='0' cellspacing='0' border='0' "
-        f"style='width:100%;max-width:720px;background:{COLORS['white']};'>",
+        f"style='width:100%;max-width:720px;background:#0f171b;'>",
 
-        # Header visual.
-        f"<tr><td style='background:{COLORS['dark']};border-bottom:5px solid {COLORS['orange']};"
-        "padding:15px 18px;'>"
+        # Header tipo dashboard.
+        f"<tr><td style='background:{COLORS['dark']};border-bottom:5px solid {COLORS['orange']};padding:14px 17px;'>"
         "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>"
-        f"<td width='55%' valign='middle'><img src='{esc(LOGO_URL)}' alt='OrangeBox IT Services' "
-        "width='190' style='display:block;width:190px;max-width:100%;height:auto;border:0;'></td>"
-        f"<td width='45%' align='right' valign='middle' style='color:{COLORS['white']};padding-left:8px;'>"
-        "<div style='font-size:20px;font-weight:bold;'>Security Dashboard</div>"
-        "<div style='font-size:9px;color:#cbd7dc;padding-top:4px;'>WAZUH · SECURITY MONITORING</div>"
-        f"</td></tr></table></td></tr>",
+        f"<td width='54%' valign='middle'><img src='{esc(LOGO_URL)}' alt='OrangeBox IT Services' width='185' "
+        "style='display:block;width:185px;max-width:100%;height:auto;border:0;'></td>"
+        f"<td width='46%' align='right' valign='middle' style='color:{COLORS['white']};padding-left:8px;'>"
+        "<div style='font-size:20px;font-weight:bold;line-height:1.0;'>Security Dashboard</div>"
+        f"<div style='font-size:9px;color:#cbd7dc;padding-top:5px;'>{esc(label.upper())} · {esc(group)}</div>"
+        "</td></tr></table></td></tr>",
 
-        # Context line.
-        f"<tr><td style='padding:16px 18px 10px;'>"
-        f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>"
-        f"<td valign='top'><div style='font-size:10px;font-weight:bold;letter-spacing:1px;"
-        f"color:{COLORS['orange']};'>ORANGEBOX SECURITY · WAZUH</div>"
-        f"<div style='font-size:23px;font-weight:bold;color:{COLORS['text']};padding-top:3px;'>"
-        "Estado de seguridad</div>"
-        f"<div style='font-size:11px;color:{COLORS['muted']};padding-top:3px;'>"
-        "Resumen visual del período seleccionado</div></td>"
-        f"<td align='right' valign='top' style='padding-left:10px;color:{COLORS['muted']};"
-        "font-size:10px;line-height:1.5;'>"
-        f"<b style='color:{COLORS['text']};'>Grupo</b><br>{esc(group)}<br>"
-        f"<b style='color:{COLORS['text']};'>Período</b><br>{esc(label)}</td>"
-        f"</tr></table>"
-        f"<div style='margin-top:10px;background:#f4f7f8;border:1px solid #d9e3e7;"
-        f"padding:8px 10px;font-size:10px;color:#526873;'>"
-        f"{esc(period)}</div></td></tr>",
-
-        # KPI row: four datos que se ven de inmediato.
-        "<tr><td style='padding:0 10px 10px;'>"
-        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>",
-        kpi("Eventos", security_count, "detecciones clasificadas"),
-        kpi("Alta severidad", critical_count, "nivel Wazuh ≥ 13"),
-        kpi("IPs atacantes", len(source_ips), "orígenes observados"),
-        kpi("IPs bloqueadas", blocked_ips, "firewall-drop", "danger"),
-        "</tr></table></td></tr>",
-
-        # Gran bloque visual de categorías + respuesta automática.
-        "<tr><td style='padding:0 10px 8px;'>"
-        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>",
-        f"<td width='65%' valign='top' style='padding:0 4px 0 0;'>"
-        f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
-        f"style='background:{COLORS['white']};border:1px solid {COLORS['border']};'>"
-        f"<tr><td style='background:#f1f5f7;border-left:4px solid {COLORS['orange']};"
-        f"padding:11px 12px;color:{COLORS['text']};font-size:15px;font-weight:bold;'>"
-        "Actividad por categoría</td></tr>"
-        f"<tr><td style='padding:7px 12px 3px;color:{COLORS['muted']};font-size:9px;'>"
-        "Distribución de las detecciones del período.</td></tr>"
-        f"<tr><td style='padding:0 10px 10px;'>{category_chart}</td></tr></table></td>",
-
-        f"<td width='35%' valign='top' style='padding:0 0 0 4px;'>"
-        f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
-        f"style='background:{COLORS['white']};border:1px solid {COLORS['border']};'>"
-        f"<tr><td style='background:{COLORS['danger_dark']};border-bottom:3px solid {COLORS['danger']};"
-        "padding:11px 10px;color:#fff;font-size:15px;font-weight:bold;'>"
-        "Bloqueos automáticos</td></tr>"
-        f"<tr><td style='padding:10px 8px 8px;'>{firewall_card}</td></tr>"
-        f"<tr><td style='padding:2px 10px 11px;color:{COLORS['muted']};font-size:9px;line-height:1.4;'>"
-        "IPs bloqueadas por las respuestas Active Response observadas en Wazuh.</td></tr>"
-        "</table></td></tr></table></td></tr>",
-
-        # Tres paneles compactos, estilo dashboard.
-        "<tr><td style='padding:0 10px 0;'>"
-        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>",
-        panel("Top 5 sistemas", f"{len(agents)} sistemas con actividad", systems_chart),
-        panel("Top 5 reglas", "Reglas con mayor volumen", rules_chart),
-        panel("Top 5 MITRE", "Técnicas más observadas", mitre_chart),
-        "</tr></table></td></tr>",
-
-        # Banda final de indicadores.
-        "<tr><td style='padding:8px 10px 8px;'>"
-        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>"
-        f"<td width='50%' style='padding:0 4px 0 0;'>"
-        f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
-        f"style='background:#f4f7f8;border:1px solid {COLORS['border']};'>"
-        f"<tr><td style='padding:9px 11px;color:{COLORS['muted']};font-size:9px;text-transform:uppercase;'>"
-        "Alta severidad sobre detecciones</td></tr>"
-        f"<tr><td style='padding:0 11px 11px;color:{COLORS['text']};font-size:20px;font-weight:bold;'>"
-        f"{critical_pct}%</td></tr></table></td>"
-        f"<td width='50%' style='padding:0 0 0 4px;'>"
-        f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
-        f"style='background:#f4f7f8;border:1px solid {COLORS['border']};'>"
-        f"<tr><td style='padding:9px 11px;color:{COLORS['muted']};font-size:9px;text-transform:uppercase;'>"
-        "Sistemas activos</td></tr>"
-        f"<tr><td style='padding:0 11px 11px;color:{COLORS['text']};font-size:20px;font-weight:bold;'>"
-        f"{num(len(agents))}</td></tr></table></td>"
-        "</tr></table></td></tr>",
-
-        f"<tr><td style='background:{COLORS['dark']};border-top:4px solid {COLORS['orange']};"
-        f"padding:12px 18px;color:#c7d2d7;font-size:9px;line-height:1.5;'>"
-        f"<b style='color:#fff;'>ORANGEBOX IT SERVICES</b><br>"
-        f"Security Dashboard · Generado {esc(generated)} · Datos extraídos desde Wazuh"
+        # Título mínimo.
+        f"<tr><td style='background:#11191d;padding:13px 17px 8px;color:{COLORS['white']};'>"
+        f"<div style='font-size:10px;color:{COLORS['orange']};font-weight:bold;letter-spacing:1.1px;'>ORANGEBOX SECURITY · WAZUH</div>"
+        "<div style='font-size:24px;font-weight:bold;padding-top:3px;'>Resumen de seguridad</div>"
+        f"<div style='font-size:10px;color:#aebec5;padding-top:3px;'>{esc(period)}</div>"
         "</td></tr>",
+
+        kpis,
+
+        # Categorías: tarjetas en lugar de una tabla de informe.
+        f"<tr><td style='padding:2px 12px 7px;color:{COLORS['white']};font-size:16px;font-weight:bold;'>"
+        f"<span style='color:{COLORS['orange']};'>▌</span> Actividad por categoría</td></tr>",
+        category_rows_html,
+
+        # Bloqueos + postura.
+        "<tr><td style='padding:0 6px 2px;'>"
+        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>"
+        + box("Bloqueos automáticos", blocked_inner, "50%", COLORS["danger"])
+        + box("Estado general", posture_inner, "50%", COLORS["orange"])
+        + "</tr></table></td></tr>",
+
+        # Rankings.
+        f"<tr><td style='padding:8px 12px 7px;color:{COLORS['white']};font-size:16px;font-weight:bold;'>"
+        f"<span style='color:{COLORS['orange']};'>▌</span> Actividad destacada</td></tr>",
+        top_panels,
+
+        f"<tr><td style='padding:4px 12px 12px;color:#8fa2aa;font-size:8px;line-height:1.4;text-align:right;'>"
+        f"Generado {esc(generated)} · Wazuh · OrangeBox IT Services</td></tr>",
+        f"<tr><td style='background:{COLORS['dark']};border-top:4px solid {COLORS['orange']};padding:11px 17px;"
+        "color:#c7d2d7;font-size:9px;line-height:1.4;'>"
+        "<b style='color:#fff;'>ORANGEBOX IT SERVICES</b><br>Security Monitoring</td></tr>",
         "</table></td></tr></table></body></html>",
     ]
+
     return "".join(parts)
 
 def send_email(subject, body, recipients, sender=DEFAULT_FROM):
