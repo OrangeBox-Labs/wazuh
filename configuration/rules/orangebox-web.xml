@@ -79,7 +79,7 @@
 
         Nivel 11:
         se mantiene como alerta relevante, pero queda por debajo del
-        umbral de la integracion de correo OrangeBox.
+        severidad de detección independiente de la política de correo.
 
         Active Response:
         firewall-drop bloquea el origen durante 24 horas.
