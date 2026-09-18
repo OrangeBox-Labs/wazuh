@@ -224,7 +224,7 @@ Se requieren 60 TCP SYN en 10 segundos, desde la misma IP y hacia el mismo puert
 
 ### 10455 - posible DoS distribuido
 
-Se requieren 80 IPs origen diferentes en 10 segundos hacia el mismo puerto destino.
+Se requieren 200 IPs origen diferentes en 10 segundos hacia el mismo puerto destino.
 
 No se aplica Active Response automáticamente a `10455`, porque un evento individual no identifica una única IP que represente al conjunto del ataque.
 
