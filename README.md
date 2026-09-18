@@ -86,7 +86,7 @@ La arquitectura actual incluye detecciones para:
 - escaneo TCP, SYN flood y posible DoS distribuido;
 - ataques y reconocimiento web;
 - archivos temporales y ejecutables sospechosos;
-- webshells y malware mediante FIM + YARA.
+- reglas y firmas experimentales para investigación de webshells.
 
 Las reglas y sus decisiones de diseño están documentadas individualmente en `configuration/rules/`.
 
