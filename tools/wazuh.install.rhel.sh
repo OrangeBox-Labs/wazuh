@@ -26,6 +26,13 @@ RSYSLOG_FILE="/etc/rsyslog.d/orangebox-firewall.conf"
 EL_MAJOR=""
 LOGGING_BACKEND=""
 
+ERROR_COUNT=0
+
+step_error() {
+    echo "ERROR: $*" >&2
+    ERROR_COUNT=$((ERROR_COUNT + 1))
+}
+
 fail() { echo "ERROR: $*" >&2; exit 1; }
 ok() { echo "OK: $*"; }
 warn() { echo "AVISO: $*" >&2; }
@@ -470,69 +477,137 @@ iptables_return_rule_exists() {
         grep -F 'RETURN' >/dev/null 2>&1
 }
 
-iptables_config_ok() {
-    # EL7/iptables antiguas pueden variar el formato de --line-numbers.
-    # Validamos la cadena y sus reglas por contenido, sin depender de columnas.
-    iptables_chain_exists &&
-    iptables_input_rule_exists &&
-    iptables_log_rule_exists &&
-    iptables_return_rule_exists
-}
-
 configure_iptables() {
-    has iptables || fail "iptables no está instalado."
+    if ! has iptables; then
+        step_error "iptables no está instalado."
+        return 1
+    fi
+
+    local failed=0
 
     if iptables_chain_exists; then
         ok "Cadena ORANGEBOX-FW ya existe; no se crea otra."
     else
         echo "==> Creando cadena ORANGEBOX-FW..."
-        iptables -N ORANGEBOX-FW || fail "No se pudo crear ORANGEBOX-FW."
+        if iptables -N ORANGEBOX-FW; then
+            ok "Cadena ORANGEBOX-FW creada."
+        else
+            step_error "No se pudo crear la cadena ORANGEBOX-FW."
+            return 1
+        fi
     fi
 
-    # Si ya existe cualquier regla LOG asociada a ORANGEBOX-FW, no se agrega otra.
+    if iptables_chain_exists; then
+        ok "Validación: cadena ORANGEBOX-FW existe."
+    else
+        step_error "Validación fallida: la cadena ORANGEBOX-FW no existe."
+        return 1
+    fi
+
     if iptables_log_rule_exists; then
         ok "Regla LOG ORANGEBOX-FW ya existe; no se agrega otra."
     else
         echo "==> Agregando LOG a ORANGEBOX-FW..."
-        iptables -A ORANGEBOX-FW \
+        if iptables -A ORANGEBOX-FW \
             -m limit --limit 20/second --limit-burst 40 \
-            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4 \
-            || fail "No se pudo agregar LOG a ORANGEBOX-FW."
+            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4; then
+            if iptables_log_rule_exists; then
+                ok "Validación: regla LOG ORANGEBOX-FW instalada."
+            else
+                step_error "La regla LOG fue agregada pero no pudo validarse."
+                failed=1
+            fi
+        else
+            step_error "No se pudo agregar la regla LOG ORANGEBOX-FW."
+            failed=1
+        fi
     fi
 
     if iptables_return_rule_exists; then
         ok "RETURN de ORANGEBOX-FW ya existe; no se agrega otro."
     else
         echo "==> Agregando RETURN a ORANGEBOX-FW..."
-        iptables -A ORANGEBOX-FW -j RETURN \
-            || fail "No se pudo agregar RETURN a ORANGEBOX-FW."
+        if iptables -A ORANGEBOX-FW -j RETURN; then
+            if iptables_return_rule_exists; then
+                ok "Validación: RETURN de ORANGEBOX-FW instalado."
+            else
+                step_error "La regla RETURN fue agregada pero no pudo validarse."
+                failed=1
+            fi
+        else
+            step_error "No se pudo agregar RETURN a ORANGEBOX-FW."
+            failed=1
+        fi
     fi
 
     if iptables_input_rule_exists; then
         ok "Regla INPUT -> ORANGEBOX-FW ya existe; no se agrega otra."
     else
         echo "==> Conectando INPUT con ORANGEBOX-FW..."
-        iptables -I INPUT 1 \
+        if iptables -I INPUT 1 \
             -p tcp --tcp-flags SYN SYN \
             ! -s 127.0.0.0/8 \
-            -j ORANGEBOX-FW \
-            || fail "No se pudo conectar INPUT con ORANGEBOX-FW."
+            -j ORANGEBOX-FW; then
+            if iptables_input_rule_exists; then
+                ok "Validación: regla INPUT -> ORANGEBOX-FW instalada."
+            else
+                step_error "La regla INPUT -> ORANGEBOX-FW fue agregada pero no pudo validarse."
+                failed=1
+            fi
+        else
+            step_error "No se pudo conectar INPUT con ORANGEBOX-FW."
+            failed=1
+        fi
     fi
 
-    iptables_config_ok || fail "La configuración ORANGEBOX-FW no quedó completa o correcta."
+    if iptables_chain_exists; then
+        ok "Validación final: cadena ORANGEBOX-FW presente."
+    else
+        step_error "Validación final fallida: cadena ORANGEBOX-FW ausente."
+        failed=1
+    fi
+
+    if iptables_log_rule_exists; then
+        ok "Validación final: regla LOG presente."
+    else
+        step_error "Validación final fallida: regla LOG ausente."
+        failed=1
+    fi
+
+    if iptables_return_rule_exists; then
+        ok "Validación final: regla RETURN presente."
+    else
+        step_error "Validación final fallida: regla RETURN ausente."
+        failed=1
+    fi
+
+    if iptables_input_rule_exists; then
+        ok "Validación final: regla INPUT presente."
+    else
+        step_error "Validación final fallida: regla INPUT -> ORANGEBOX-FW ausente."
+        failed=1
+    fi
 
     if [ -f /etc/sysconfig/iptables ]; then
         if has service && service iptables save >/dev/null 2>&1; then
             ok "Configuración iptables persistida."
+        elif iptables-save > /etc/sysconfig/iptables; then
+            ok "Configuración iptables persistida mediante iptables-save."
         else
-            iptables-save > /etc/sysconfig/iptables \
-                || warn "No se pudo persistir la configuración iptables."
+            step_error "No se pudo persistir la configuración iptables en /etc/sysconfig/iptables."
+            failed=1
         fi
     else
         warn "No existe /etc/sysconfig/iptables; no se fuerza persistencia."
     fi
 
-    ok "Configuración ORANGEBOX-FW de iptables validada."
+    if [ "$failed" -eq 0 ]; then
+        ok "Configuración ORANGEBOX-FW de iptables validada."
+        return 0
+    fi
+
+    step_error "Configuración ORANGEBOX-FW de iptables terminó con uno o más errores; se continuará con los demás pasos."
+    return 1
 }
 
 configure_firewalld() {
@@ -556,13 +631,13 @@ configure_firewalld() {
 configure_firewall() {
     if shorewall_installed; then
         ok "Shorewall instalado; usando configuración persistente de Shorewall."
-        configure_shorewall
+        (configure_shorewall) || step_error "El paso Shorewall falló; se continuará con logging."
     elif has firewall-cmd && firewall-cmd --state >/dev/null 2>&1; then
         ok "firewalld activo."
-        configure_firewalld
+        (configure_firewalld) || step_error "El paso firewalld falló; se continuará con logging."
     else
         ok "Shorewall no instalado y firewalld no activo; usando iptables."
-        configure_iptables
+        configure_iptables || true
     fi
 }
 
@@ -764,6 +839,15 @@ if [ "$LOGGING_BACKEND" = "rsyslog" ]; then
     [ -f "$LOGROTATE_FILE" ] || fail "Verificación final: logrotate ausente."
 else
     journalctl -n 1 --no-pager >/dev/null 2>&1 || fail "Verificación final: journald no está disponible."
+fi
+
+if [ "$ERROR_COUNT" -gt 0 ]; then
+    echo
+    echo "============================================================" >&2
+    echo " OrangeBox completado con $ERROR_COUNT error(es)." >&2
+    echo " Revise los mensajes ERROR anteriores; los demás pasos sí se ejecutaron." >&2
+    echo "============================================================" >&2
+    exit 1
 fi
 
 ok "Configuración OrangeBox completada."
