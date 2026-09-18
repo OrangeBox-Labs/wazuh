@@ -24,7 +24,8 @@ FIREWALL_LOG="/var/log/orangebox-firewall.log"
 LOGROTATE_FILE="/etc/logrotate.d/orangebox-firewall"
 RSYSLOG_FILE="/etc/rsyslog.d/orangebox-firewall.conf"
 WAZUH_FIREWALL_HELPER="/var/ossec/bin/orangebox-iptables"
-WAZUH_FIREWALL_DROPIN="/etc/systemd/system/wazuh-agent.service.d/20-orangebox-firewall.conf"
+WAZUH_FIREWALL_STOP_HELPER="/var/ossec/bin/orangebox-iptables-stop"
+WAZUH_FIREWALL_SERVICE="/etc/systemd/system/orangebox-iptables.service"
 EL_MAJOR=""
 LOGGING_BACKEND=""
 
@@ -479,25 +480,25 @@ iptables_return_rule_exists() {
         grep -F 'RETURN' >/dev/null 2>&1
 }
 
-configure_wazuh_agent_firewall_hook() {
+configure_wazuh_agent_firewall_service() {
     if ! has systemctl; then
-        warn "systemctl no está disponible; no se instalará el hook persistente del firewall en wazuh-agent."
+        warn "systemctl no está disponible; no se instalará orangebox-iptables.service."
         return 1
     fi
 
     systemctl cat wazuh-agent.service >/dev/null 2>&1 || {
-        step_error "El servicio wazuh-agent.service no existe; no se pudo instalar el hook persistente del firewall."
+        step_error "El servicio wazuh-agent.service no existe; no se pudo crear la dependencia del firewall."
         return 1
     }
 
     mkdir -p "$(dirname "$WAZUH_FIREWALL_HELPER")" || {
-        step_error "No se pudo crear el directorio de $WAZUH_FIREWALL_HELPER."
+        step_error "No se pudo crear el directorio de los helpers del firewall."
         return 1
     }
 
     cat > "$WAZUH_FIREWALL_HELPER" <<'EOF'
 #!/bin/bash
-# OrangeBox - asegura la regla de logging antes de iniciar wazuh-agent.
+# OrangeBox - carga únicamente las reglas de firewall administradas por OrangeBox.
 set -u
 IPTABLES="$(command -v iptables 2>/dev/null || true)"
 [ -n "$IPTABLES" ] || exit 0
@@ -530,52 +531,83 @@ input_rule_exists || "$IPTABLES" -I INPUT 1 \
     -p tcp --tcp-flags SYN SYN \
     ! -s 127.0.0.0/8 \
     -j ORANGEBOX-FW || exit 1
+
+chain_exists || exit 1
+log_rule_exists || exit 1
+return_rule_exists || exit 1
+input_rule_exists || exit 1
 exit 0
 EOF
 
-    chmod 755 "$WAZUH_FIREWALL_HELPER" || {
-        step_error "No se pudo hacer ejecutable $WAZUH_FIREWALL_HELPER."
-        return 1
-    }
+    cat > "$WAZUH_FIREWALL_STOP_HELPER" <<'EOF'
+#!/bin/bash
+# OrangeBox - retira únicamente las reglas administradas por OrangeBox.
+set -u
+IPTABLES="$(command -v iptables 2>/dev/null || true)"
+[ -n "$IPTABLES" ] || exit 0
 
-    mkdir -p "$(dirname "$WAZUH_FIREWALL_DROPIN")" || {
-        step_error "No se pudo crear el directorio del drop-in de wazuh-agent."
-        return 1
-    }
+# Elimina todos los saltos ORANGEBOX-FW presentes en INPUT, sin tocar
+# ninguna otra regla del firewall del equipo.
+while "$IPTABLES" -L INPUT -n --line-numbers 2>/dev/null |
+    awk '$2 == "ORANGEBOX-FW" { print $1 }' |
+    sort -rn | while read -r rule_no; do
+        "$IPTABLES" -D INPUT "$rule_no" || exit 1
+    done
+do
+    :
+done
 
-    if [ -f "$WAZUH_FIREWALL_DROPIN" ]; then
-        if grep -Fxq 'ExecStartPre=-/var/ossec/bin/orangebox-iptables' "$WAZUH_FIREWALL_DROPIN"; then
-            ok "Hook persistente del firewall para wazuh-agent ya existe."
-        else
-            step_error "$WAZUH_FIREWALL_DROPIN existe pero no contiene el hook OrangeBox esperado; no se sobrescribe."
-            return 1
-        fi
-    else
-        cat > "$WAZUH_FIREWALL_DROPIN" <<'EOF'
-[Service]
-# OrangeBox - asegurar las reglas de logging antes de iniciar Wazuh Agent.
-# El prefijo - evita bloquear el arranque del agente si iptables no está disponible.
-ExecStartPre=-/var/ossec/bin/orangebox-iptables
+if "$IPTABLES" -L ORANGEBOX-FW -n >/dev/null 2>&1; then
+    "$IPTABLES" -F ORANGEBOX-FW || exit 1
+    "$IPTABLES" -X ORANGEBOX-FW || exit 1
+fi
+
+exit 0
 EOF
-        chmod 644 "$WAZUH_FIREWALL_DROPIN" || {
-            step_error "No se pudo establecer permisos en $WAZUH_FIREWALL_DROPIN."
-            return 1
-        }
-        ok "Hook persistente del firewall agregado a wazuh-agent."
-    fi
+
+    chmod 755 "$WAZUH_FIREWALL_HELPER" "$WAZUH_FIREWALL_STOP_HELPER" || {
+        step_error "No se pudieron hacer ejecutables los helpers de iptables."
+        return 1
+    }
+
+    cat > "$WAZUH_FIREWALL_SERVICE" <<'EOF'
+[Unit]
+Description=OrangeBox iptables rules for Wazuh Agent
+Requires=wazuh-agent.service
+After=wazuh-agent.service
+PartOf=wazuh-agent.service
+BindsTo=wazuh-agent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/var/ossec/bin/orangebox-iptables
+ExecStop=/var/ossec/bin/orangebox-iptables-stop
+
+[Install]
+WantedBy=wazuh-agent.service
+EOF
+    chmod 644 "$WAZUH_FIREWALL_SERVICE" || {
+        step_error "No se pudieron establecer permisos en $WAZUH_FIREWALL_SERVICE."
+        return 1
+    }
 
     systemctl daemon-reload || {
-        step_error "systemctl daemon-reload falló después de instalar el hook del firewall."
+        step_error "systemctl daemon-reload falló al instalar orangebox-iptables.service."
         return 1
     }
 
-    if "$WAZUH_FIREWALL_HELPER"; then
-        ok "Hook del firewall probado correctamente en el estado actual."
-    else
-        step_error "El hook del firewall no pudo aplicar/validar las reglas actuales."
+    systemctl enable orangebox-iptables.service >/dev/null 2>&1 || {
+        step_error "No se pudo habilitar orangebox-iptables.service como dependencia de wazuh-agent."
         return 1
-    fi
+    }
 
+    "$WAZUH_FIREWALL_HELPER" || {
+        step_error "No se pudieron cargar/validar las reglas OrangeBox de iptables."
+        return 1
+    }
+
+    ok "orangebox-iptables.service configurado para cargar reglas al iniciar Wazuh y retirarlas al detenerlo."
     return 0
 }
 configure_iptables() {
@@ -690,8 +722,8 @@ configure_iptables() {
     fi
 
     if [ "$EL_MAJOR" -ge 7 ] 2>/dev/null; then
-        if configure_wazuh_agent_firewall_hook; then
-            ok "Persistencia del firewall asociada a wazuh-agent configurada."
+        if configure_wazuh_agent_firewall_service; then
+            ok "Persistencia del firewall mediante orangebox-iptables.service configurada."
         else
             failed=1
         fi
