@@ -109,7 +109,9 @@ def donut(c,vals,labs,x,y,r,cols,total_label="TOTAL"):
   c.setFillColor(col); c.rect(x+r+18,ly,7,7,fill=1,stroke=0); txt(c,lab,x+r+31,ly+1,6.2,TEXT); txt(c,n(v),x+r+118,ly+1,6.2,TEXT,"Helvetica-Bold","right"); ly-=14
 def gauge(c,value,total,x,y,r):
  pct=max(0,min(1,float(value)/total if total else 0)); c.setLineWidth(13); c.setLineCap(1); c.setStrokeColor(colors.HexColor("#e8edef")); c.arc(x-r,y-r,x+r,y+r,0,180)
- col=CYAN if pct<.35 else ORANGE if pct<.75 else RED; c.setStrokeColor(col); c.arc(x-r,y-r,x+r,y+r,0,180*pct); c.setLineCap(0)
+ col=CYAN if pct<.35 else ORANGE if pct<.75 else RED; c.setStrokeColor(col)
+ if pct>0: c.arc(x-r,y-r,x+r,y+r,0,180*pct)
+ c.setLineCap(0)
  txt(c,"EFICACIA DE BLOQUEO",x,y+15,8,TEXT,"Helvetica-Bold","center"); txt(c,f"{pct*100:.1f}%",x,y-4,22,col,"Helvetica-Bold","center"); txt(c,"bloqueadas / atacantes",x,y-18,6.5,MUTED,align="center")
  txt(c,"0",x-r+3,y-3,5.5,MUTED); txt(c,"100%",x+r-3,y-3,5.5,MUTED,align="right")
 def page1(c,s,g,l,p,W,H):
