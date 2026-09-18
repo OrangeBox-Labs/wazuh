@@ -55,7 +55,7 @@ Las URLs sensibles se excluyen porque ya tienen su propio camino (`10023` → `1
 
 Correlaciona `2` eventos `10023` en `30` segundos desde la misma IP.
 
-Es nivel 15 porque esta detección está pensada para activar `firewall-drop` durante 24 horas.
+Es nivel 11 y activa `firewall-drop` durante 24 horas. La severidad se mantiene separada de la política de correo.
 
 **MITRE:** `T1083` y `T1552`.
 
