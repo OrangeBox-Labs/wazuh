@@ -86,7 +86,7 @@ def pct(value, total):
 
 
 def kpi(label, value, note, accent="orange"):
-    accent_color = COLORS["orange"] if accent == "orange" else COLORS["danger"]
+    accent_color = COLORS['orange'] if accent == "orange" else COLORS['danger']
     return (
         "<td width='25%' valign='top' style='padding:0 4px 8px;'>"
         f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='background:{COLORS['dark2']};border-bottom:4px solid {accent_color};'>"
@@ -185,7 +185,7 @@ def mitre_chart_rows(summary, report, limit=8):
 
 
 def big_stat(value, label, note="", accent="orange"):
-    color = COLORS["orange"] if accent == "orange" else COLORS["danger"]
+    color = COLORS['orange'] if accent == "orange" else COLORS['danger']
     return (
         f"<div style='font-size:34px;font-weight:bold;color:{color};line-height:1.0;'>{num(value)}</div>"
         f"<div style='font-size:11px;font-weight:bold;color:{COLORS['text']};text-transform:uppercase;margin-top:5px;'>{esc(label)}</div>"
@@ -219,7 +219,7 @@ def dashboard_html(summary, group, start, end, label, report):
     mitre_data = mitre_chart_rows(summary, report, 5)
 
     def visual_bar(count, max_value, height=8, color=None):
-        color = color or COLORS["orange"]
+        color = color or COLORS['orange']
         width = pct(count, max_value)
         if width < 3 and count:
             width = 3
@@ -250,10 +250,10 @@ def dashboard_html(summary, group, start, end, label, report):
         )
 
     def ranked_cards(rows, title_color=None):
-        title_color = title_color or COLORS["orange"]
+        title_color = title_color or COLORS['orange']
         if not rows:
             return (
-                f"<div style='padding:14px;color:{COLORS["muted"]};font-size:10px;'>"
+                f"<div style='padding:14px;color:{COLORS['muted']};font-size:10px;'>"
                 "Sin datos para el período.</div>"
             )
         max_value = max(int(count) for _label, count in rows) or 1
@@ -268,23 +268,23 @@ def dashboard_html(summary, group, start, end, label, report):
                 f"<tr>"
                 f"<td width='7%' style='padding:5px 3px;color:{title_color};font-size:11px;font-weight:bold;'>"
                 f"{index + 1}</td>"
-                f"<td width='61%' style='padding:5px 3px;color:{COLORS["text"]};font-size:10px;overflow-wrap:anywhere;'>"
+                f"<td width='61%' style='padding:5px 3px;color:{COLORS['text']};font-size:10px;overflow-wrap:anywhere;'>"
                 f"<b>{esc(shown)}</b></td>"
                 f"<td width='20%' style='padding:5px 4px;'>{visual_bar(count, max_value, 6, title_color)}</td>"
-                f"<td width='12%' align='right' style='padding:5px 2px;color:{COLORS["text"]};font-size:10px;font-weight:bold;'>"
+                f"<td width='12%' align='right' style='padding:5px 2px;color:{COLORS['text']};font-size:10px;font-weight:bold;'>"
                 f"{num(count)}</td>"
                 f"</tr></table>"
             )
         return "".join(blocks)
 
     def box(title, inner, width="50%", accent=None):
-        accent = accent or COLORS["orange"]
+        accent = accent or COLORS['orange']
         return (
             f"<td width='{width}' valign='top' style='padding:4px;'>"
             f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
-            f"style='background:{COLORS["white"]};border:1px solid {COLORS["border"]};'>"
+            f"style='background:{COLORS['white']};border:1px solid {COLORS['border']};'>"
             f"<tr><td style='border-top:4px solid {accent};padding:10px 11px 7px;"
-            f"color:{COLORS["text"]};font-size:14px;font-weight:bold;'>{esc(title)}</td></tr>"
+            f"color:{COLORS['text']};font-size:14px;font-weight:bold;'>{esc(title)}</td></tr>"
             f"<tr><td style='padding:0 10px 10px;'>{inner}</td></tr>"
             "</table></td>"
         )
@@ -312,28 +312,28 @@ def dashboard_html(summary, group, start, end, label, report):
     if blocked_ips:
         blocked_inner = (
             f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
-            f"<tr><td align='center' style='padding:6px 4px 0;color:{COLORS["danger"]};font-size:42px;font-weight:bold;line-height:1;'>"
+            f"<tr><td align='center' style='padding:6px 4px 0;color:{COLORS['danger']};font-size:42px;font-weight:bold;line-height:1;'>"
             f"{num(blocked_ips)}</td></tr>"
-            f"<tr><td align='center' style='padding:3px 4px 1px;color:{COLORS["text"]};font-size:10px;font-weight:bold;text-transform:uppercase;'>"
+            f"<tr><td align='center' style='padding:3px 4px 1px;color:{COLORS['text']};font-size:10px;font-weight:bold;text-transform:uppercase;'>"
             "IPs atacantes bloqueadas</td></tr>"
-            f"<tr><td align='center' style='padding:0 4px 10px;color:{COLORS["muted"]};font-size:9px;'>"
+            f"<tr><td align='center' style='padding:0 4px 10px;color:{COLORS['muted']};font-size:9px;'>"
             f"{num(firewall_attempts)} intentos asociados · Active Response</td></tr>"
             "</table>"
         )
     else:
         blocked_inner = (
-            f"<div style='padding:18px 5px;text-align:center;color:{COLORS["good"]};font-size:12px;font-weight:bold;'>"
+            f"<div style='padding:18px 5px;text-align:center;color:{COLORS['good']};font-size:12px;font-weight:bold;'>"
             "0 IPs bloqueadas en el período</div>"
         )
 
     posture_inner = (
         f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
         f"<tr><td width='50%' valign='top' style='padding:4px 8px 4px 0;'>"
-        f"<div style='font-size:27px;font-weight:bold;color:{COLORS["orange"]};'>{critical_pct}%</div>"
-        f"<div style='font-size:9px;color:{COLORS["muted"]};text-transform:uppercase;'>alta severidad</div>"
+        f"<div style='font-size:27px;font-weight:bold;color:{COLORS['orange']};'>{critical_pct}%</div>"
+        f"<div style='font-size:9px;color:{COLORS['muted']};text-transform:uppercase;'>alta severidad</div>"
         f"</td><td width='50%' valign='top' style='padding:4px 0 4px 8px;'>"
-        f"<div style='font-size:27px;font-weight:bold;color:{COLORS["text"]};'>{num(len(agents))}</div>"
-        f"<div style='font-size:9px;color:{COLORS["muted"]};text-transform:uppercase;'>sistemas activos</div>"
+        f"<div style='font-size:27px;font-weight:bold;color:{COLORS['text']};'>{num(len(agents))}</div>"
+        f"<div style='font-size:9px;color:{COLORS['muted']};text-transform:uppercase;'>sistemas activos</div>"
         f"</td></tr></table>"
     )
 
@@ -386,8 +386,8 @@ def dashboard_html(summary, group, start, end, label, report):
         # Bloqueos + postura.
         "<tr><td style='padding:0 6px 2px;'>"
         "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>"
-        + box("Bloqueos automáticos", blocked_inner, "50%", COLORS["danger"])
-        + box("Estado general", posture_inner, "50%", COLORS["orange"])
+        + box("Bloqueos automáticos", blocked_inner, "50%", COLORS['danger'])
+        + box("Estado general", posture_inner, "50%", COLORS['orange'])
         + "</tr></table></td></tr>",
 
         # Rankings.
