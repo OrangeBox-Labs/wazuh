@@ -292,7 +292,7 @@ def dashboard_html(summary, group, start, end, label, report):
             f"<tr>"
             f"<td width='50%' valign='top' style='padding:0 4px 0 0;'>"
             f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
-            f"style='background:{COLORS["danger_dark"]};'>"
+            f"style='background:{COLORS['danger_dark']};'>"
             f"<tr><td align='center' style='padding:15px 5px 2px;color:#ffb39e;"
             f"font-size:30px;font-weight:bold;'>{num(blocked_ips)}</td></tr>"
             f"<tr><td align='center' style='padding:0 5px 3px;color:#fff;font-size:10px;"
