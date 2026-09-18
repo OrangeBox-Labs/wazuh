@@ -202,120 +202,230 @@ def dashboard_html(summary, group, start, end, label, report):
     firewall_ips = summary["firewall_ips"]
     firewall_data = summary["firewall_rows"]
 
-    period = f"{start.strftime('%d/%m/%Y %H:%M')} — {end.strftime('%d/%m/%Y %H:%M') if end <= datetime.now().astimezone() else 'ahora'}"
-    generated = datetime.now().astimezone().strftime("%d/%m/%Y %H:%M %Z")
+    now = datetime.now().astimezone()
+    period = (
+        f"{start.strftime('%d/%m/%Y %H:%M')} — "
+        f"{end.strftime('%d/%m/%Y %H:%M') if end <= now else 'ahora'}"
+    )
+    generated = now.strftime("%d/%m/%Y %H:%M %Z")
 
     category_data = category_rows(categories)
-    rules_data = rules_rows(categories, 7)
-    agents_data = agent_rows(agents, 8)
-    mitre_data = mitre_chart_rows(summary, report, 8)
+    rules_data = rules_rows(categories, 5)
+    agents_data = agent_rows(agents, 5)
+    mitre_data = mitre_chart_rows(summary, report, 5)
 
     firewall_attempts = sum(row["attempts"] for row in firewall_data)
+    blocked_ips = len(firewall_ips)
+    critical_pct = round((critical_count / security_count) * 100, 1) if security_count else 0
 
     category_total = sum(count for _label, count in category_data) or 1
-    category_chart = bar_chart(
-        [(f"{label} · {pct(count, category_total)}%", count) for label, count in category_data],
-        max_rows=6,
+
+    def compact_bars(rows, max_rows=5):
+        rows = rows[:max_rows]
+        if not rows:
+            return (
+                f"<div style='padding:12px 4px;color:{COLORS['muted']};"
+                "font-size:10px;'>Sin datos para el período.</div>"
+            )
+
+        max_value = max(int(count) for _, count in rows) or 1
+        parts = [
+            "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
+        ]
+        for index, (label, count) in enumerate(rows):
+            width = pct(count, max_value)
+            if width < 3 and count:
+                width = 3
+            border = "" if index == 0 else "border-top:1px solid #edf0f2;"
+            shown = label if len(str(label)) <= 34 else f"{str(label)[:31]}…"
+            parts.append(
+                f"<tr>"
+                f"<td width='45%' valign='middle' style='{border}padding:7px 5px 7px 2px;"
+                f"font-size:10px;color:{COLORS['text']};overflow-wrap:anywhere;'>"
+                f"<b>{esc(shown)}</b></td>"
+                f"<td width='40%' valign='middle' style='{border}padding:7px 5px;'>"
+                f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
+                f"<tr><td style='background:{COLORS['track']};height:7px;font-size:1px;line-height:7px;'>"
+                f"<table role='presentation' cellpadding='0' cellspacing='0' border='0' width='{width}%'>"
+                f"<tr><td style='background:{COLORS['orange']};height:7px;font-size:1px;line-height:7px;'>&nbsp;</td></tr>"
+                f"</table></td></tr></table></td>"
+                f"<td width='15%' align='right' valign='middle' style='{border}padding:7px 2px;"
+                f"font-size:10px;font-weight:bold;color:{COLORS['text']};white-space:nowrap;'>"
+                f"{num(count)}</td></tr>"
+            )
+        parts.append("</table>")
+        return "".join(parts)
+
+    category_chart = compact_bars(
+        [
+            (
+                f"{icon} {label} · {pct(count, category_total)}%",
+                count,
+            )
+            for label, count in category_data
+            for icon, _display in [(next((v[0] for k, v in CATEGORIES.items() if v[1] == label), ""), label)]
+        ],
+        6,
     )
 
-    rules_chart = bar_chart(rules_data, max_rows=7, small=True)
-    agents_chart = bar_chart(agents_data, max_rows=8, small=True)
-    mitre_chart = bar_chart(mitre_data, max_rows=8, small=True)
+    # En este dashboard, las tarjetas inferiores contienen solo el Top 5.
+    rules_chart = compact_bars(rules_data, 5)
+    systems_chart = compact_bars(agents_data, 5)
+    mitre_chart = compact_bars(mitre_data, 5)
+
+    def panel(title, subtitle, inner, width="33.33%"):
+        return (
+            f"<td width='{width}' valign='top' style='padding:0 4px 8px;'>"
+            f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+            f"style='height:100%;background:{COLORS['white']};border:1px solid {COLORS['border']};'>"
+            f"<tr><td style='background:#f1f5f7;border-top:3px solid {COLORS['orange']};"
+            f"padding:10px 10px 6px;color:{COLORS['text']};font-size:13px;font-weight:bold;'>"
+            f"{esc(title)}</td></tr>"
+            f"<tr><td style='padding:0 10px 4px;color:{COLORS['muted']};font-size:9px;'>"
+            f"{esc(subtitle)}</td></tr>"
+            f"<tr><td style='padding:0 8px 8px;'>{inner}</td></tr></table></td>"
+        )
 
     if firewall_ips:
-        firewall_inner = (
-            "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
-            "<tr>"
-            f"<td width='50%' valign='top' style='padding:9px 14px;background:{COLORS['danger_bg']};border:1px solid #efd8d4;'>{big_stat(len(firewall_ips), 'IPs bloqueadas', 'Active Response firewall-drop', 'danger')}</td>"
-            f"<td width='50%' valign='top' style='padding:9px 14px;background:{COLORS['danger_bg']};border:1px solid #efd8d4;'>{big_stat(firewall_attempts, 'Intentos asociados', 'Detectados antes del bloqueo', 'danger')}</td>"
-            "</tr></table>"
+        firewall_card = (
+            f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
+            f"<tr>"
+            f"<td width='50%' valign='top' style='padding:0 4px 0 0;'>"
+            f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+            f"style='background:{COLORS["danger_dark"]};'>"
+            f"<tr><td align='center' style='padding:15px 5px 2px;color:#ffb39e;"
+            f"font-size:30px;font-weight:bold;'>{num(blocked_ips)}</td></tr>"
+            f"<tr><td align='center' style='padding:0 5px 3px;color:#fff;font-size:10px;"
+            f"font-weight:bold;text-transform:uppercase;'>IPs atacantes bloqueadas</td></tr>"
+            f"<tr><td align='center' style='padding:0 5px 13px;color:#ffdcd3;font-size:9px;'>"
+            f"firewall-drop / Active Response</td></tr></table></td>"
+            f"<td width='50%' valign='top' style='padding:0 0 0 4px;'>"
+            f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+            f"style='background:#f7f0ee;border:1px solid #ead6d1;'>"
+            f"<tr><td align='center' style='padding:15px 5px 2px;color:{COLORS['danger']};"
+            f"font-size:30px;font-weight:bold;'>{num(firewall_attempts)}</td></tr>"
+            f"<tr><td align='center' style='padding:0 5px 3px;color:{COLORS['text']};font-size:10px;"
+            f"font-weight:bold;text-transform:uppercase;'>Intentos asociados</td></tr>"
+            f"<tr><td align='center' style='padding:0 5px 13px;color:{COLORS['muted']};font-size:9px;'>"
+            f"detectados antes del bloqueo</td></tr></table></td>"
+            f"</tr></table>"
         )
     else:
-        firewall_inner = (
-            f"<div style='padding:14px;background:#f6faf8;border:1px solid #dcebe3;color:{COLORS['good']};font-size:12px;font-weight:bold;'>"
-            "No se registraron bloqueos automáticos con una IP de origen válida durante el período."
-            "</div>"
+        firewall_card = (
+            f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+            f"style='background:#f6faf8;border:1px solid #dcebe3;'>"
+            f"<tr><td align='center' style='padding:18px 10px;color:{COLORS['good']};"
+            f"font-size:12px;font-weight:bold;'>Sin bloqueos automáticos en el período</td></tr>"
+            f"</table>"
         )
 
     parts = [
-        "<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'></head>",
-        f"<body style='margin:0;padding:0;background:{COLORS['page']};font-family:Arial,Helvetica,sans-serif;color:{COLORS['text']};'>",
-        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr><td align='center' style='padding:10px;'>",
-        f"<table role='presentation' width='700' cellpadding='0' cellspacing='0' border='0' style='width:100%;max-width:700px;background:{COLORS['white']};'>",
+        "<!DOCTYPE html><html lang='es'><head><meta charset='UTF-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1.0'></head>",
+        f"<body style='margin:0;padding:0;background:{COLORS['page']};"
+        "font-family:Arial,Helvetica,sans-serif;color:#263238;'>",
+        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>"
+        "<tr><td align='center' style='padding:10px;'>",
+        f"<table role='presentation' width='720' cellpadding='0' cellspacing='0' border='0' "
+        f"style='width:100%;max-width:720px;background:{COLORS['white']};'>",
 
-        f"<tr><td style='background:{COLORS['dark']};border-bottom:5px solid {COLORS['orange']};padding:15px 18px;'>"
+        # Header visual.
+        f"<tr><td style='background:{COLORS['dark']};border-bottom:5px solid {COLORS['orange']};"
+        "padding:15px 18px;'>"
         "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>"
-        f"<td width='56%' valign='middle'><img src='{esc(LOGO_URL)}' alt='OrangeBox IT Services' width='190' style='display:block;width:190px;max-width:100%;height:auto;border:0;'></td>"
-        f"<td width='44%' align='right' valign='middle' style='color:{COLORS['white']};padding-left:8px;'>"
+        f"<td width='55%' valign='middle'><img src='{esc(LOGO_URL)}' alt='OrangeBox IT Services' "
+        "width='190' style='display:block;width:190px;max-width:100%;height:auto;border:0;'></td>"
+        f"<td width='45%' align='right' valign='middle' style='color:{COLORS['white']};padding-left:8px;'>"
         "<div style='font-size:20px;font-weight:bold;'>Security Dashboard</div>"
         "<div style='font-size:9px;color:#cbd7dc;padding-top:4px;'>WAZUH · SECURITY MONITORING</div>"
-        "</td></tr></table></td></tr>",
+        f"</td></tr></table></td></tr>",
 
-        f"<tr><td style='padding:18px 18px 10px;'>"
-        f"<div style='font-size:10px;font-weight:bold;letter-spacing:1px;color:{COLORS['orange']};'>ORANGEBOX SECURITY · WAZUH</div>"
-        f"<div style='font-size:24px;font-weight:bold;color:{COLORS['text']};padding-top:4px;'>Dashboard de seguridad</div>"
-        f"<div style='font-size:13px;color:{COLORS['muted']};padding-top:4px;'>Actividad detectada y respuestas automáticas del período seleccionado.</div>"
-        f"<div style='margin-top:12px;background:#f4f7f8;border:1px solid #d9e3e7;padding:9px 11px;font-size:11px;color:#526873;line-height:1.5;'>"
-        f"<b>Grupo:</b> {esc(group)} &nbsp;·&nbsp; <b>Período:</b> {esc(label)}<br>{esc(period)}</div>"
-        "</td></tr>",
+        # Context line.
+        f"<tr><td style='padding:16px 18px 10px;'>"
+        f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>"
+        f"<td valign='top'><div style='font-size:10px;font-weight:bold;letter-spacing:1px;"
+        f"color:{COLORS['orange']};'>ORANGEBOX SECURITY · WAZUH</div>"
+        f"<div style='font-size:23px;font-weight:bold;color:{COLORS['text']};padding-top:3px;'>"
+        "Estado de seguridad</div>"
+        f"<div style='font-size:11px;color:{COLORS['muted']};padding-top:3px;'>"
+        "Resumen visual del período seleccionado</div></td>"
+        f"<td align='right' valign='top' style='padding-left:10px;color:{COLORS['muted']};"
+        "font-size:10px;line-height:1.5;'>"
+        f"<b style='color:{COLORS['text']};'>Grupo</b><br>{esc(group)}<br>"
+        f"<b style='color:{COLORS['text']};'>Período</b><br>{esc(label)}</td>"
+        f"</tr></table>"
+        f"<div style='margin-top:10px;background:#f4f7f8;border:1px solid #d9e3e7;"
+        f"padding:8px 10px;font-size:10px;color:#526873;'>"
+        f"{esc(period)}</div></td></tr>",
 
+        # KPI row: four datos que se ven de inmediato.
         "<tr><td style='padding:0 10px 10px;'>"
         "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>",
         kpi("Eventos", security_count, "detecciones clasificadas"),
         kpi("Alta severidad", critical_count, "nivel Wazuh ≥ 13"),
-        kpi("IPs origen", len(source_ips), "direcciones observadas"),
-        kpi("Sistemas", len(agents), "agentes con detecciones"),
+        kpi("IPs atacantes", len(source_ips), "orígenes observados"),
+        kpi("IPs bloqueadas", blocked_ips, "firewall-drop", "danger"),
         "</tr></table></td></tr>",
 
-        chart_section(
-            "Actividad por categoría",
-            "Distribución de las detecciones. El conteo es el mismo utilizado por el informe ejecutivo.",
-            category_chart,
-            "📊",
-        ),
+        # Gran bloque visual de categorías + respuesta automática.
+        "<tr><td style='padding:0 10px 8px;'>"
+        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>",
+        f"<td width='65%' valign='top' style='padding:0 4px 0 0;'>"
+        f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+        f"style='background:{COLORS['white']};border:1px solid {COLORS['border']};'>"
+        f"<tr><td style='background:#f1f5f7;border-left:4px solid {COLORS['orange']};"
+        f"padding:11px 12px;color:{COLORS['text']};font-size:15px;font-weight:bold;'>"
+        "Actividad por categoría</td></tr>"
+        f"<tr><td style='padding:7px 12px 3px;color:{COLORS['muted']};font-size:9px;'>"
+        "Distribución de las detecciones del período.</td></tr>"
+        f"<tr><td style='padding:0 10px 10px;'>{category_chart}</td></tr></table></td>",
 
-        chart_section(
-            "Reglas más activas",
-            "Principales reglas por cantidad de detecciones.",
-            rules_chart,
-            "⚙️",
-        ),
+        f"<td width='35%' valign='top' style='padding:0 0 0 4px;'>"
+        f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+        f"style='background:{COLORS['white']};border:1px solid {COLORS['border']};'>"
+        f"<tr><td style='background:{COLORS['danger_dark']};border-bottom:3px solid {COLORS['danger']};"
+        "padding:11px 10px;color:#fff;font-size:15px;font-weight:bold;'>"
+        "Bloqueos automáticos</td></tr>"
+        f"<tr><td style='padding:10px 8px 8px;'>{firewall_card}</td></tr>"
+        f"<tr><td style='padding:2px 10px 11px;color:{COLORS['muted']};font-size:9px;line-height:1.4;'>"
+        "IPs bloqueadas por las respuestas Active Response observadas en Wazuh.</td></tr>"
+        "</table></td></tr></table></td></tr>",
 
-        chart_section(
-            "Sistemas con mayor actividad",
-            "Volumen de detecciones por sistema. Se muestra solo el nombre del agente.",
-            agents_chart,
-            "🖥️",
-        ),
+        # Tres paneles compactos, estilo dashboard.
+        "<tr><td style='padding:0 10px 0;'>"
+        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>",
+        panel("Top 5 sistemas", f"{len(agents)} sistemas con actividad", systems_chart),
+        panel("Top 5 reglas", "Reglas con mayor volumen", rules_chart),
+        panel("Top 5 MITRE", "Técnicas más observadas", mitre_chart),
+        "</tr></table></td></tr>",
 
-        chart_section(
-            "Técnicas MITRE observadas",
-            "Principales técnicas asociadas a las alertas del período.",
-            mitre_chart,
-            "🧭",
-        ),
+        # Banda final de indicadores.
+        "<tr><td style='padding:8px 10px 8px;'>"
+        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>"
+        f"<td width='50%' style='padding:0 4px 0 0;'>"
+        f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+        f"style='background:#f4f7f8;border:1px solid {COLORS['border']};'>"
+        f"<tr><td style='padding:9px 11px;color:{COLORS['muted']};font-size:9px;text-transform:uppercase;'>"
+        "Alta severidad sobre detecciones</td></tr>"
+        f"<tr><td style='padding:0 11px 11px;color:{COLORS['text']};font-size:20px;font-weight:bold;'>"
+        f"{critical_pct}%</td></tr></table></td>"
+        f"<td width='50%' style='padding:0 0 0 4px;'>"
+        f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' "
+        f"style='background:#f4f7f8;border:1px solid {COLORS['border']};'>"
+        f"<tr><td style='padding:9px 11px;color:{COLORS['muted']};font-size:9px;text-transform:uppercase;'>"
+        "Sistemas activos</td></tr>"
+        f"<tr><td style='padding:0 11px 11px;color:{COLORS['text']};font-size:20px;font-weight:bold;'>"
+        f"{num(len(agents))}</td></tr></table></td>"
+        "</tr></table></td></tr>",
 
-        chart_section(
-            "Respuestas automáticas",
-            "Actividad registrada de Active Response firewall-drop.",
-            firewall_inner,
-            "🛡️",
-        ),
-
-        f"<tr><td style='padding:0 14px 15px;'>"
-        f"<div style='background:#f7f9fa;border:1px solid #dce5e9;border-left:4px solid {COLORS['orange']};padding:9px 11px;color:#526873;font-size:10px;line-height:1.5;'>"
-        "<b>Misma fuente de datos:</b> este dashboard utiliza la misma extracción y clasificación del informe ejecutivo; solo cambia la presentación."
-        "</div></td></tr>",
-
-        f"<tr><td style='background:{COLORS['dark']};border-top:4px solid {COLORS['orange']};padding:13px 18px;color:#c7d2d7;font-size:9px;line-height:1.5;'>"
-        f"<b style='color:#fff;'>ORANGEBOX IT SERVICES</b><br>Security Dashboard · Generado {esc(generated)} · Datos extraídos desde Wazuh"
+        f"<tr><td style='background:{COLORS['dark']};border-top:4px solid {COLORS['orange']};"
+        f"padding:12px 18px;color:#c7d2d7;font-size:9px;line-height:1.5;'>"
+        f"<b style='color:#fff;'>ORANGEBOX IT SERVICES</b><br>"
+        f"Security Dashboard · Generado {esc(generated)} · Datos extraídos desde Wazuh"
         "</td></tr>",
-
         "</table></td></tr></table></body></html>",
     ]
-
     return "".join(parts)
-
 
 def send_email(subject, body, recipients, sender=DEFAULT_FROM):
     msg = MIMEMultipart("alternative")
