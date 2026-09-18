@@ -386,26 +386,27 @@ def mitre_rows(summary):
 
 def generate_html(summary,title,subtitle,period,group,lang="es"):
     L=labels(lang); security_count=summary["security_count"]; critical_count=summary["critical_count"]; all_ips=summary["source_ips"]; agents=summary["agents"]; agent_stats=summary["agent_stats"]; categories=summary["categories"]; firewall_rows=summary["firewall_rows"]; firewall_ips=summary["firewall_ips"]
-    bg="#f3f6f8"; dark="#17313b"; orange="#f58220"; text="#25343b"; muted="#657984"; border="#dce5e9"; page=[f"<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'></head><body style='margin:0;padding:0;background:{bg};font-family:Arial,Helvetica,sans-serif;color:{text};'>"]
-    page.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:100%;'><tr><td align='center' style='padding:12px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:92%;background:#ffffff;border:1px solid #dce5e9;border-radius:10px;'>")
-    page.append(f"<tr><td style='background:{dark};border-bottom:1px solid #294650;padding:17px 20px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr><td valign='middle'><img src='{LOGO_URL}' alt='OrangeBox IT Services' style='display:block;max-width:210px;height:auto;max-height:55px;border:0;'></td><td align='right' valign='middle' style='padding-left:10px;color:#fff;font-size:18px;font-weight:bold;'>Wazuh<div style='font-size:9px;color:#b8c5cb;'>SECURITY MONITORING</div></td></tr></table></td></tr>")
-    page.append(f"<tr><td style='padding:24px 22px 14px;'><div style='color:{orange};font-size:11px;font-weight:bold;letter-spacing:1.4px;'>ORANGEBOX SECURITY · WAZUH</div><div style='font-size:26px;font-weight:bold;margin-top:5px;color:{text};'>{esc(title)}</div><div style='font-size:14px;color:{muted};padding-top:5px;'>{esc(subtitle)}</div><div style='margin-top:14px;background:#f7f9fa;border:1px solid #e1e8ec;border-radius:7px;padding:10px 12px;font-size:13px;color:#526873;'><b>Grupo:</b> {esc(group)} &nbsp; · &nbsp; <b>Período:</b> {esc(period)}</div></td></tr>")
-    page.append("<tr><td style='padding:0 14px 20px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='7' border='0'><tr>")
-    metrics=[(security_count,L["security_events"]),(critical_count,L["high_alerts"]),(len(all_ips),L["source_ips"]),(len(agents),L["systems"]),(len(firewall_ips),L["blocked_ips"])]
+    bg="#e9eef1"; dark="#102a34"; orange="#f58220"; text="#20343c"; muted="#617680"; border="#d9e3e8"; page=[f"<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'></head><body style='margin:0;padding:0;background:{bg};font-family:Arial,Helvetica,sans-serif;color:{text};'>"]
+    page.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:100%;'><tr><td align='center' style='padding:12px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:94%;background:#ffffff;border:0;border-radius:12px;'>")
+    page.append(f"<tr><td style='background:{dark};border-bottom:5px solid {orange};padding:20px 22px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr><td valign='middle'><img src='{LOGO_URL}' alt='OrangeBox IT Services' style='display:block;max-width:210px;height:auto;max-height:55px;border:0;'></td><td align='right' valign='middle' style='padding-left:10px;color:#fff;font-size:18px;font-weight:bold;'>Wazuh<div style='font-size:9px;color:#b8c5cb;'>SECURITY MONITORING</div></td></tr></table></td></tr>")
+    page.append(f"<tr><td style='padding:26px 26px 16px;'><div style='color:{orange};font-size:10px;font-weight:800;letter-spacing:1.8px;'>ORANGEBOX SECURITY · WAZUH</div><div style='font-size:30px;line-height:1.12;font-weight:800;margin-top:6px;color:{text};'>{esc(title)}</div><div style='font-size:14px;line-height:1.5;color:{muted};padding-top:7px;'>{esc(subtitle)}</div><table role='presentation' cellpadding='0' cellspacing='0' border='0' style='margin-top:16px;'><tr><td style='background:#edf3f5;border:1px solid #dce6ea;border-radius:7px;padding:9px 12px;font-size:12px;color:#526873;'><b>GRUPO</b>&nbsp; {esc(group)}</td><td width='8'></td><td style='background:#17313b;border-radius:7px;padding:9px 12px;font-size:12px;color:#ffffff;'><b>PERÍODO</b>&nbsp; {esc(period)}</td></tr></table></td></tr>")
+    page.append("<tr><td style='padding:0 22px 24px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='8' border='0'><tr>")
+    metrics=[(security_count,L["security_events"],"#eef4f6"),(critical_count,L["high_alerts"],"#fff4ea"),(len(all_ips),L["source_ips"],"#edf6f8"),(len(agents),L["systems"],"#f1f5f6"),(len(firewall_ips),L["blocked_ips"],"#fff1e8")]
     card_width=f"{100/len(metrics):.2f}%";
-    for value,label in metrics:
+    for value,label,tint in metrics:
         page.append(
             f"<td width='{card_width}' valign='top' style='padding:0;'>"
-            f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='background:#17313b;border:1px solid #d9e3e7;border-radius:9px;'>"
-            f"<tr><td align='center' style='padding:15px 6px 14px;color:#fff;'>"
-            f"<div style='color:{orange};font-size:26px;line-height:1.05;font-weight:800;'>{value:,}</div>"
-            f"<div style='color:#cbd9de;font-size:9px;line-height:1.35;font-weight:700;letter-spacing:.45px;text-transform:uppercase;margin-top:6px;'>{esc(label)}</div>"
+            f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='background:{tint};border:0;border-radius:10px;'>"
+            f"<tr><td style='padding:17px 9px 16px;'>"
+            f"<div style='font-size:28px;line-height:1;font-weight:800;color:{dark};'>{value:,}</div>"
+            f"<div style='font-size:9px;line-height:1.35;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:{muted};margin-top:8px;'>{esc(label)}</div>"
+            f"<div style='width:24px;height:3px;background:{orange};margin-top:11px;font-size:1px;line-height:3px;'>&nbsp;</div>"
             f"</td></tr>"
             f"</table></td>"
         )
     page.append("</tr></table></td></tr>")
     def section_open(icon,heading,sub=None):
-        section=f"<tr><td style='padding:0 14px 18px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='border:1px solid {border};border-radius:8px;'><tr><td style='background:#f8fafb;border-bottom:1px solid {border};padding:12px 14px;font-size:16px;font-weight:700;color:{text};'>{icon} {esc(heading)}</td></tr>"
+        section=f"<tr><td style='padding:0 22px 18px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='border:1px solid {border};border-radius:10px;background:#ffffff;'><tr><td style='background:#f8fafb;border-bottom:1px solid {border};padding:13px 15px;font-size:17px;font-weight:800;color:{text};'>{icon} {esc(heading)}</td></tr>"
         if sub: section+=f"<tr><td style='padding:8px 14px 5px;color:#78909c;font-size:12px;'>{esc(sub)}</td></tr>"
         return section
     def section_close(): return "</table></td></tr>"
@@ -423,7 +424,7 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
         firewall_reasons=sorted(firewall_by_reason.items(), key=lambda item:(-len(item[1]["ips"]), -item[1]["attempts"], item[0][0]))
 
         page.append("<tr><td style='padding:0 8px 8px;overflow-wrap:anywhere;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>")
-        page.append(f"<tr><td style='background:#274651;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['reason'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['rule'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['blocked_ips'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['attempts'])}</td></tr>")
+        page.append(f"<tr><td style='background:#17313b;color:#fff;padding:9px;font-size:10px;font-weight:800;letter-spacing:.2px;'>{esc(L['reason'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['rule'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['blocked_ips'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['attempts'])}</td></tr>")
         for (rule_id,description),data in firewall_reasons:
             page.append(f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:12px;overflow-wrap:anywhere;'>{esc(description)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-weight:bold;color:#d65d00;font-size:12px;'>{esc(rule_id)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{len(data['ips']):,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{data['attempts']:,}</td></tr>")
         page.append("</table></td></tr>")
