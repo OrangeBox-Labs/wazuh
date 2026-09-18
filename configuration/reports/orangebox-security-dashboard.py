@@ -290,7 +290,8 @@ def dashboard_html(summary, group, start, end, label, report):
         )
 
     # KPI principal: cuatro números, sin párrafos intermedios.
-    kpis = (
+    # Se construye explícitamente como string para que parts[] nunca reciba un tuple.
+    kpis = "".join((
         "<tr><td style='padding:0 6px 9px;'>"
         "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>",
         kpi("Eventos", security_count, "detecciones"),
@@ -298,7 +299,7 @@ def dashboard_html(summary, group, start, end, label, report):
         kpi("IPs atacantes", len(source_ips), "orígenes observados"),
         kpi("IPs bloqueadas", blocked_ips, "firewall-drop", "danger"),
         "</tr></table></td></tr>"
-    )
+    ))
 
     category_rows_html = (
         "<tr><td style='padding:0 6px 8px;'>"
