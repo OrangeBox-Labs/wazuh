@@ -9,7 +9,7 @@ Este directorio contiene herramientas operativas para desplegar o administrar co
 - [`wazuh.install.rhel.sh`](wazuh.install.rhel.sh) — instala el agente y prepara un filesystem dedicado para `/var/ossec`.
 - [`wazuh.install.rhel.md`](wazuh.install.rhel.md) — documentación técnica del comportamiento actual y de las decisiones de diseño.
 
-> **Importante:** el instalador será rediseñado posteriormente para incorporar la configuración de logs de firewall y el soporte requerido por las futuras detecciones de escaneo de puertos y DDoS. Su documentación actual describe únicamente las funciones que realmente implementa hoy.
+> **Estado actual:** el instalador ya incorpora el logging de firewall de OrangeBox, con precedencia `Shorewall > firewalld > iptables`, y usa rsyslog + logrotate en EL6 y journald en EL7+. En EL7+ las reglas iptables administradas por OrangeBox se cargan y retiran mediante `orangebox-iptables.service`, ligado al ciclo de vida de `wazuh-agent`.
 
 ## Criterio del directorio
 
