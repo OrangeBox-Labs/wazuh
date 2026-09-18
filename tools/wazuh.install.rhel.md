@@ -92,27 +92,38 @@ No se fuerza `ssl_verify_host` ni la verificación de certificados de agentes de
 
 ## `/var/ossec`
 
-La funcionalidad histórica de crear un LV de 100 MB se mantiene en el flujo de instalación nueva.
+El flujo de instalación nueva crea un LV de **1 GiB (1 GB)** llamado `wazuh`. El Volume Group elegido debe tener al menos 1 GiB libre; si no existe uno suficiente, ese paso falla sin elegir un VG insuficiente.
 
 El script nunca borra contenido existente de `/var/ossec`.
 
 ## Firewall
 
-Primero detecta firewalld.
+Aplica la precedencia:
 
-Si está activo:
+```text
+Shorewall > firewalld > iptables
+```
+
+### Shorewall
+
+Si Shorewall está instalado, el instalador utiliza `/etc/shorewall/rules`, valida la configuración con `shorewall check` y reinicia Shorewall cuando la regla OrangeBox fue modificada.
+
+### firewalld
+
+Si Shorewall no está instalado y firewalld está activo:
 
 - usa `firewall-cmd --direct`;
 - agrega la regla TCP SYN OrangeBox;
 - la marca como permanente;
 - recarga y valida.
 
-Si firewalld no está activo:
+Si no hay Shorewall ni firewalld activo:
 
 - usa iptables;
 - evita localhost;
 - aplica limitación de 20 eventos/s y burst 40;
-- intenta persistir en `/etc/sysconfig/iptables`.
+- en EL7+ administra las reglas OrangeBox mediante `orangebox-iptables.service`, vinculado al ciclo de vida de `wazuh-agent`;
+- en EL6 utiliza la persistencia de `/etc/sysconfig/iptables`.
 
 La regla solamente registra; no bloquea por sí misma.
 
@@ -160,15 +171,9 @@ La fuente del evento es el mensaje `ORANGEBOX-FW:` generado por el kernel/iptabl
 
 ## Wazuh y la detección de red
 
-El agente mantiene la entrada histórica para:
+En EL6 el agente recibe el log desde `/var/log/orangebox-firewall.log`.
 
-```text
-/var/log/orangebox-firewall.log
-```
-
-para compatibilidad con EL6.
-
-En EL7+ la detección se realiza mediante journald, que es la fuente utilizada por la configuración del agente en sistemas modernos.
+En EL7+ el instalador utiliza journald para el logging local del firewall; la recolección de journald debe estar explícitamente habilitada en la configuración del agente para que las reglas de red reciban esos eventos.
 
 Las reglas OrangeBox asociadas están en:
 
@@ -180,8 +185,8 @@ Actualmente:
 
 - `10450`: señal de TCP SYN usada para correlación sin generar alertas individuales.
 - `10453`: 12 SYN en 90 segundos, misma IP origen y diferentes puertos destino.
-- `10454`: múltiples SYN al mismo puerto desde una misma IP.
-- `10455`: múltiples SYN al mismo puerto desde diferentes IP de origen.
+- `10454`: 60 SYN en 10 segundos desde la misma IP y hacia el mismo puerto destino.
+- `10455`: 200 IPs origen diferentes en 10 segundos hacia el mismo puerto destino.
 
 `10453` y `10454` tienen `firewall-drop` asociado. `10455` queda como detección distribuida sin bloqueo automático de una IP individual.
 
