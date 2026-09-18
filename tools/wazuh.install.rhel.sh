@@ -762,7 +762,7 @@ configure_journald() {
 }
 
 # ---------------------------------------------------------------------------
-# 5. logrotate (solo EL6)
+# 5. logrotate
 # ---------------------------------------------------------------------------
 
 configure_logrotate() {
@@ -796,18 +796,20 @@ EOF
 configure_logging() {
     case "$LOGGING_BACKEND" in
         rsyslog)
-            echo "==> Configurando rsyslog + logrotate para EL6..."
-            configure_rsyslog
-            configure_logrotate
+            echo "==> Configurando rsyslog para EL6..."
+            (configure_rsyslog) || step_error "El paso rsyslog falló; se continuará con logrotate y el resto de la instalación."
             ;;
         journald)
             echo "==> Configurando journald para EL${EL_MAJOR}+..."
-            configure_journald
+            (configure_journald) || step_error "El paso journald falló; se continuará con logrotate y el resto de la instalación."
             ;;
         *)
-            fail "Backend de logging no definido."
+            step_error "Backend de logging no definido: ${LOGGING_BACKEND:-vacío}."
             ;;
     esac
+
+    echo "==> Configurando logrotate..."
+    (configure_logrotate) || step_error "El paso logrotate falló; se continuará con la instalación."
 }
 
 # ---------------------------------------------------------------------------
