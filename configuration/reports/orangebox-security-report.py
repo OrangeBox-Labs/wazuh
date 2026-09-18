@@ -17,7 +17,6 @@ import os
 import re
 import smtplib
 import subprocess
-import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
@@ -97,24 +96,27 @@ def extract_firewall_payload(full_log):
     except json.JSONDecodeError: return None
 
 def load_firewall_timeouts():
-    """Lee desde ossec.conf el tiempo configurado para firewall-drop."""
+    """Lee desde ossec.conf los timeout de cada active-response firewall-drop.
+    Se procesa por bloques de texto porque ossec.conf puede contener varios
+    bloques <ossec_config>, que no forman un XML único estándar.
+    """
     timeouts = {}
     try:
-        root = ET.parse(WAZUH_OSSEC_CONF).getroot()
-    except (OSError, ET.ParseError):
+        with open(WAZUH_OSSEC_CONF, "r", encoding="utf-8", errors="ignore") as handle:
+            config = handle.read()
+    except OSError:
         return timeouts
-    for response in root.findall(".//active-response"):
-        if response.findtext("command", "").strip() != "firewall-drop":
+
+    for block in re.findall(r"<active-response>\s*(.*?)\s*</active-response>", config, flags=re.DOTALL):
+        command = re.search(r"<command>\s*([^<]+?)\s*</command>", block)
+        rules_id = re.search(r"<rules_id>\s*([^<]+?)\s*</rules_id>", block)
+        timeout = re.search(r"<timeout>\s*(\d+)\s*</timeout>", block)
+        if not command or not rules_id or not timeout:
             continue
-        rules_id = response.findtext("rules_id", "").strip()
-        timeout = response.findtext("timeout", "").strip()
-        if not rules_id or not timeout:
+        if command.group(1).strip() != "firewall-drop":
             continue
-        try:
-            seconds = int(timeout)
-        except ValueError:
-            continue
-        for rule_id in re.split(r"\s*,\s*", rules_id):
+        seconds = int(timeout.group(1))
+        for rule_id in re.split(r"\s*,\s*", rules_id.group(1).strip()):
             if rule_id:
                 timeouts[rule_id] = seconds
     return timeouts
@@ -388,10 +390,21 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
     page.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:100%;'><tr><td align='center' style='padding:12px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:90%;background:#ffffff;border:1px solid #d5dde2;'>")
     page.append(f"<tr><td style='background:{dark};border-bottom:5px solid {orange};padding:16px 20px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr><td valign='middle'><img src='{LOGO_URL}' alt='OrangeBox IT Services' style='display:block;max-width:210px;height:auto;max-height:55px;border:0;'></td><td align='right' valign='middle' style='padding-left:10px;color:#fff;font-size:18px;font-weight:bold;'>Wazuh<div style='font-size:9px;color:#b8c5cb;'>SECURITY MONITORING</div></td></tr></table></td></tr>")
     page.append(f"<tr><td style='padding:24px 22px 14px;'><div style='color:{orange};font-size:11px;font-weight:bold;letter-spacing:1.4px;'>ORANGEBOX SECURITY · WAZUH</div><div style='font-size:26px;font-weight:bold;margin-top:5px;color:{text};'>{esc(title)}</div><div style='font-size:14px;color:{muted};padding-top:5px;'>{esc(subtitle)}</div><div style='margin-top:14px;background:#f4f7f8;border:1px solid #dbe4e8;padding:9px 11px;font-size:13px;color:#526873;'><b>Grupo:</b> {esc(group)} &nbsp; · &nbsp; <b>Período:</b> {esc(period)}</div></td></tr>")
-    page.append("<tr><td style='padding:0 14px 18px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='8' border='0'><tr>")
+    page.append("<tr><td style='padding:0 14px 20px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='7' border='0'><tr>")
     metrics=[(security_count,L["security_events"]),(critical_count,L["high_alerts"]),(len(all_ips),L["source_ips"]),(len(agents),L["systems"]),(len(firewall_ips),L["blocked_ips"])]
     card_width=f"{100/len(metrics):.2f}%";
-    for value,label in metrics: page.append(f"<td width='{card_width}' valign='top' align='center' style='background:#18313b;border-bottom:3px solid {orange};padding:12px 5px;color:#fff;'><div style='color:{orange};font-size:24px;font-weight:bold;'>{value:,}</div><div style='font-size:10px;color:#d3e0e5;text-transform:uppercase;'>{esc(label)}</div></td>")
+    for value,label in metrics:
+        page.append(
+            f"<td width='{card_width}' valign='top' style='padding:0;'>"
+            f"<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='background:#18313b;border:1px solid #294a57;border-radius:8px;'>"
+            f"<tr><td style='height:3px;background:{orange};font-size:1px;line-height:3px;'>&nbsp;</td></tr>"
+            f"<tr><td align='center' style='padding:12px 5px 5px;color:#fff;'>"
+            f"<div style='color:{orange};font-size:25px;line-height:1.05;font-weight:800;'>{value:,}</div>"
+            f"<div style='color:#d3e0e5;font-size:9px;line-height:1.3;font-weight:700;letter-spacing:.4px;text-transform:uppercase;margin-top:5px;'>{esc(label)}</div>"
+            f"</td></tr>"
+            f"<tr><td style='height:3px;background:{orange};font-size:1px;line-height:3px;'>&nbsp;</td></tr>"
+            f"</table></td>"
+        )
     page.append("</tr></table></td></tr>")
     def section_open(icon,heading,sub=None):
         section=f"<tr><td style='padding:0 14px 18px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='border:1px solid {border};'><tr><td style='background:#f4f7f8;border-left:4px solid {orange};padding:11px 13px;font-size:16px;font-weight:bold;color:{text};'>{icon} {esc(heading)}</td></tr>"
