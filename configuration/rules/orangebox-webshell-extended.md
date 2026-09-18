@@ -4,7 +4,9 @@ Documentación de `orangebox-webshell-extended.yar`.
 
 ## Para qué sirve
 
-Esta capa contiene detecciones **heurísticas y secundarias** para técnicas JSP sospechosas.
+Esta capa contiene detecciones YARA **heurísticas y experimentales** para técnicas JSP sospechosas.
+
+Actualmente no está conectada al pipeline productivo FIM → YARA → alerta Wazuh; se mantiene para investigación y pruebas.
 
 Está separada de Core a propósito: un match aquí significa **sospechoso**, no malware confirmado.
 
