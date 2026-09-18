@@ -261,9 +261,44 @@ def load_events(start,end,allowed):
         if file_day != seen_day: seen_day=file_day; seen=set()
         for outer in iter_json(path):
             rule=outer.get("rule") or {}; outer_rule=str(rule.get("id",""))
-            if outer_rule != FIREWALL_RULE:
+            if outer_rule == FIREWALL_RULE:
+                # Los eventos 651 son el registro de la ejecución real de
+                # firewall-drop. Se procesan de forma independiente para no
+                # depender del decoder ni del deduplicado de alertas normales.
                 outer_ts=parse_timestamp(outer.get("timestamp"))
-                if not outer_ts or outer_ts<start or outer_ts>=end: continue
+                data=outer.get("data") or {}
+                params=data.get("parameters") or {}
+                alert=params.get("alert") or {}
+                command=data.get("command") or params.get("command")
+                payload=extract_firewall_payload(outer.get("full_log",""))
+                if isinstance(payload,dict):
+                    if command not in {"add","delete"}:
+                        command=payload.get("command")
+                    payload_params=payload.get("parameters") or {}
+                    if not alert and isinstance(payload_params,dict):
+                        alert=payload_params.get("alert") or {}
+                alert_rule=alert.get("rule") or {}
+                alert_agent=alert.get("agent") or {}
+                alert_data=alert.get("data") or {}
+                src=alert_data.get("srcip")
+                if not src and isinstance(payload,dict):
+                    payload_alert=payload.get("parameters",{}).get("alert") or {}
+                    src=(payload_alert.get("data") or {}).get("srcip")
+                    if not alert_rule: alert_rule=payload_alert.get("rule") or {}
+                    if not alert_agent: alert_agent=payload_alert.get("agent") or {}
+                event_ts=parse_timestamp(alert.get("timestamp")) or outer_ts
+                agent_id=str(alert_agent.get("id","000"))
+                agent_name=alert_agent.get("name","unknown")
+                if (command=="add" and valid_ip(src) and event_ts and start<=event_ts<end
+                        and (allowed is None or agent_id in allowed)):
+                    rule_id=str(alert_rule.get("id","unknown"))
+                    description=alert_rule.get("description","Firewall Drop")
+                    row_key=(agent_id,agent_name,rule_id,description)
+                    firewall_rows[row_key].add(str(src))
+                    firewall_ips.add(str(src))
+                continue
+            outer_ts=parse_timestamp(outer.get("timestamp"))
+            if not outer_ts or outer_ts<start or outer_ts>=end: continue
             event=parse_event(outer)
             if not event or event["timestamp"]<start or event["timestamp"]>=end: continue
             if allowed is not None and event["agent_id"] not in allowed: continue
@@ -272,10 +307,6 @@ def load_events(start,end,allowed):
                 if key in seen: continue
                 seen.add(key)
             category=classify(event["rule_id"],event["groups"],event["level"]); event_agent=(event["agent_id"],event["agent_name"])
-            if event["outer_rule"]==FIREWALL_RULE:
-                if event["command"]=="add" and event["srcip"]:
-                    row_key=(event["agent_id"],event["agent_name"],event["rule_id"],event["description"]); firewall_rows[row_key].add(event["srcip"]); firewall_ips.add(event["srcip"])
-                continue
             if event["srcip"]: firewall_attempts[(event["agent_id"],event["rule_id"],event["srcip"])] += 1
             if category=="other": continue
             security_count += 1
