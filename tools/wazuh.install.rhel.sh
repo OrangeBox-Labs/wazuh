@@ -387,6 +387,11 @@ restart_agent() {
     if has systemctl; then
         systemctl enable --now wazuh-agent || fail "No se pudo habilitar/iniciar wazuh-agent."
         systemctl is-active --quiet wazuh-agent || fail "wazuh-agent no está activo."
+
+        if systemctl is-enabled orangebox-iptables.service >/dev/null 2>&1; then
+            systemctl start orangebox-iptables.service || fail "No se pudo iniciar orangebox-iptables.service."
+            systemctl is-active --quiet orangebox-iptables.service || fail "orangebox-iptables.service no está activo."
+        fi
     else
         chkconfig wazuh-agent on >/dev/null 2>&1 || true
         service wazuh-agent restart || fail "No se pudo reiniciar wazuh-agent."
