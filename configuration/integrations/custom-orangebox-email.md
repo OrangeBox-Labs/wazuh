@@ -23,6 +23,7 @@ Estas reglas se consideran inmediatas:
 - `10001` - login SSH exitoso OrangeBox.
 - `10004` - `su` hacia root.
 - `10008` - sudo exitoso.
+- `10007` - ráfaga de fallos SSH desde red interna / posible movimiento lateral.
 - `10009` - sudo exitoso.
 
 Además, cualquier alerta que pertenezca al grupo `privilege_escalation_root` se envía inmediatamente.
