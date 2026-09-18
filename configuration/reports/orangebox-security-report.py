@@ -216,7 +216,7 @@ def load_events(start,end,allowed):
     if not files: raise SystemExit("No se encontraron logs JSON para el período solicitado")
     security_count=0; critical_count=0; source_ips=set(); agents=Counter()
     categories={name:{"count":0,"ips":set(),"agents":set(),"rules":Counter(),"rule_agents":defaultdict(set)} for name in ("authentication","web","fim","malware","privilege","attack")}
-    mitre_counts=Counter(); mitre_names={}; firewall_ips=set(); firewall_rows=defaultdict(set); firewall_attempts=Counter()
+    mitre_counts=Counter(); mitre_names={}; firewall_ips=set(); firewall_rows=defaultdict(set); firewall_attempts=Counter(); timeline=Counter()
     seen_day=None; seen=set(); today=datetime.now().date()
     for path in files:
         if path == Path(ALERTS_FILE): file_day=today
@@ -244,6 +244,7 @@ def load_events(start,end,allowed):
             if event["srcip"]: firewall_attempts[(event["agent_id"],event["rule_id"],event["srcip"])] += 1
             if category=="other": continue
             security_count += 1
+            timeline[event["timestamp"].date()] += 1
             if event["level"]>=13: critical_count += 1
             if event["srcip"]: source_ips.add(event["srcip"])
             agents[event_agent] += 1
@@ -260,7 +261,7 @@ def load_events(start,end,allowed):
         agent_id,agent_name,rule_id,description=key; attempts=sum(firewall_attempts[(agent_id,rule_id,ip)] for ip in ips)
         if attempts==0: attempts=len(ips)
         firewall_result.append({"agent_id":agent_id,"agent_name":agent_name,"rule_id":rule_id,"description":description,"ips":sorted(ips,key=lambda v:(ipaddress.ip_address(v).version,ipaddress.ip_address(v))),"attempts":attempts})
-    return {"security_count":security_count,"critical_count":critical_count,"source_ips":source_ips,"agents":agents,"categories":categories,"mitre_counts":mitre_counts,"mitre_names":mitre_names,"firewall_ips":firewall_ips,"firewall_rows":sorted(firewall_result,key=lambda r:r["agent_name"].lower())}
+    return {"security_count":security_count,"critical_count":critical_count,"source_ips":source_ips,"agents":agents,"categories":categories,"mitre_counts":mitre_counts,"mitre_names":mitre_names,"firewall_ips":firewall_ips,"firewall_rows":sorted(firewall_result,key=lambda r:r["agent_name"].lower()),"timeline":timeline}
 
 def section_rows(info):
     rows=[]
