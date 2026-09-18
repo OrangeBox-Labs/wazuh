@@ -205,20 +205,20 @@ EOF
 
     # La configuración queda persistente en /etc/shorewall/rules.
     # En EL6 Shorewall puede estar gestionado por init.d y el comando
-    # "shorewall reload" no siempre devuelve éxito aunque "shorewall check"
+    # "shorewall restart" es el mecanismo requerido en este entorno EL6 aunque "shorewall check"
     # haya validado correctamente la configuración. No hacemos fallar toda
     # la instalación por un reload no soportado/no necesario.
     if has service && service shorewall status >/dev/null 2>&1; then
-        if shorewall reload >/dev/null 2>&1; then
+        if shorewall restart >/dev/null 2>&1; then
             ok "Shorewall recargado con la configuración OrangeBox."
         else
-            warn "Shorewall está activo pero no se pudo recargar automáticamente. La configuración quedó persistente; aplica 'shorewall reload' manualmente si corresponde."
+            warn "Shorewall está activo pero no se pudo recargar automáticamente. La configuración quedó persistente; aplica 'shorewall restart' manualmente si corresponde."
         fi
     elif has systemctl && systemctl is-active --quiet shorewall 2>/dev/null; then
-        if shorewall reload >/dev/null 2>&1; then
+        if shorewall restart >/dev/null 2>&1; then
             ok "Shorewall recargado con la configuración OrangeBox."
         else
-            warn "Shorewall está activo pero no se pudo recargar automáticamente. La configuración quedó persistente; aplica 'shorewall reload' manualmente si corresponde."
+            warn "Shorewall está activo pero no se pudo recargar automáticamente. La configuración quedó persistente; aplica 'shorewall restart' manualmente si corresponde."
         fi
     else
         warn "Shorewall está instalado pero no activo; la regla quedó persistente y será aplicada al iniciar Shorewall."
