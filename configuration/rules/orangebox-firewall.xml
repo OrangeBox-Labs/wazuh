@@ -90,8 +90,8 @@
         diversidad de puerto destino.
 
         level=11:
-            Se mantiene como alerta relevante, pero queda por debajo del
-            umbral de la integracion de correo OrangeBox.
+            Se mantiene como una alerta relevante. La política de correo
+            se decide de forma independiente en la integración.
     -->
     <rule id="10453" level="11" frequency="12" timeframe="90" ignore="90">
         <if_matched_sid>10450</if_matched_sid>
@@ -131,7 +131,7 @@
     <!--
         10455 - POSIBLE DENEGACION DE SERVICIO DISTRIBUIDA
 
-        80 IPs origen diferentes
+        200 IPs origen diferentes
         +
         mismo puerto destino
         +
