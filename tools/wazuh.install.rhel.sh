@@ -496,6 +496,17 @@ configure_wazuh_agent_firewall_service() {
         return 1
     fi
 
+    # Retirar el antiguo drop-in de ExecStartPre creado por versiones anteriores.
+    # Solo se elimina si contiene exactamente nuestro hook anterior.
+    local legacy_dropin="/etc/systemd/system/wazuh-agent.service.d/20-orangebox-firewall.conf"
+    if [ -f "$legacy_dropin" ] && grep -Fxq 'ExecStartPre=-/var/ossec/bin/orangebox-iptables' "$legacy_dropin" 2>/dev/null; then
+        rm -f "$legacy_dropin" || {
+            step_error "No se pudo retirar el antiguo drop-in OrangeBox de wazuh-agent."
+            return 1
+        }
+        rmdir "$(dirname "$legacy_dropin")" 2>/dev/null || true
+        ok "Antiguo hook ExecStartPre OrangeBox retirado."
+    fi
     systemctl cat wazuh-agent.service >/dev/null 2>&1 || {
         step_error "El servicio wazuh-agent.service no existe; no se pudo crear la dependencia del firewall."
         return 1
@@ -556,19 +567,26 @@ set -u
 IPTABLES="$(command -v iptables 2>/dev/null || true)"
 [ -n "$IPTABLES" ] || exit 0
 
-# Primero retirar todos los saltos OrangeBox desde INPUT.
 while true; do
     rule_no="$("$IPTABLES" -L INPUT -n --line-numbers 2>/dev/null |
         awk '$2 == "ORANGEBOX-FW" { print $1; exit }')"
-
     [ -n "$rule_no" ] || break
     "$IPTABLES" -D INPUT "$rule_no" || exit 1
 done
 
-# Luego vaciar y eliminar exclusivamente la cadena OrangeBox.
 if "$IPTABLES" -L ORANGEBOX-FW -n >/dev/null 2>&1; then
-    "$IPTABLES" -F ORANGEBOX-FW || exit 1
-    "$IPTABLES" -X ORANGEBOX-FW || exit 1
+    while true; do
+        rule_no="$("$IPTABLES" -L ORANGEBOX-FW -n --line-numbers 2>/dev/null |
+            awk '$2 == "LOG" && /ORANGEBOX-FW/ { print $1; exit }
+                 $2 == "RETURN" { print $1; exit }')"
+        [ -n "$rule_no" ] || break
+        "$IPTABLES" -D ORANGEBOX-FW "$rule_no" || exit 1
+    done
+
+    # Si quedaron reglas ajenas dentro de la cadena, no la eliminamos.
+    if [ -z "$("$IPTABLES" -L ORANGEBOX-FW -n 2>/dev/null | tail -n +3)" ]; then
+        "$IPTABLES" -X ORANGEBOX-FW || exit 1
+    fi
 fi
 
 exit 0
