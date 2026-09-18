@@ -248,6 +248,7 @@ def load_events(start,end,allowed):
     files=list(iter_log_files(start,end))
     if not files: raise SystemExit("No se encontraron logs JSON para el período solicitado")
     security_count=0; critical_count=0; source_ips=set(); agents=Counter()
+    agent_stats=defaultdict(lambda: {"events":0, "high":0, "ips":set(), "attacks":0})
     categories={name:{"count":0,"ips":set(),"agents":set(),"rules":Counter(),"rule_agents":defaultdict(set)} for name in ("authentication","web","fim","malware","privilege","attack")}
     mitre_counts=Counter(); mitre_names={}; firewall_ips=set(); firewall_rows=defaultdict(set); firewall_attempts=Counter(); timeline=Counter()
     seen_day=None; seen=set(); today=datetime.now().date()
@@ -281,6 +282,11 @@ def load_events(start,end,allowed):
             if event["level"]>=13: critical_count += 1
             if event["srcip"]: source_ips.add(event["srcip"])
             agents[event_agent] += 1
+            agent_info=agent_stats[event_agent]
+            agent_info["events"] += 1
+            if event["level"] >= 13: agent_info["high"] += 1
+            if event["srcip"]: agent_info["ips"].add(event["srcip"])
+            if category == "attack": agent_info["attacks"] += 1
             info=categories[category]; info["count"] += 1
             if event["srcip"]: info["ips"].add(event["srcip"])
             info["agents"].add(event["agent_id"])
@@ -294,7 +300,7 @@ def load_events(start,end,allowed):
         agent_id,agent_name,rule_id,description=key; attempts=sum(firewall_attempts[(agent_id,rule_id,ip)] for ip in ips)
         if attempts==0: attempts=len(ips)
         firewall_result.append({"agent_id":agent_id,"agent_name":agent_name,"rule_id":rule_id,"description":description,"ips":sorted(ips,key=lambda v:(ipaddress.ip_address(v).version,ipaddress.ip_address(v))),"attempts":attempts})
-    return {"security_count":security_count,"critical_count":critical_count,"source_ips":source_ips,"agents":agents,"categories":categories,"mitre_counts":mitre_counts,"mitre_names":mitre_names,"firewall_ips":firewall_ips,"firewall_rows":sorted(firewall_result,key=lambda r:r["agent_name"].lower()),"timeline":timeline}
+    return {"security_count":security_count,"critical_count":critical_count,"source_ips":source_ips,"agents":agents,"agent_stats":agent_stats,"categories":categories,"mitre_counts":mitre_counts,"mitre_names":mitre_names,"firewall_ips":firewall_ips,"firewall_rows":sorted(firewall_result,key=lambda r:r["agent_name"].lower()),"timeline":timeline}
 
 def section_rows(info):
     rows=[]
@@ -306,7 +312,7 @@ def mitre_rows(summary):
     return [(mid,names.get(mid,"Técnica MITRE ATT&CK"),MITRE_DESCRIPTIONS.get(mid,"Comportamiento asociado a una técnica de ataque o intrusión; Wazuh la vinculó con esta detección."),count) for mid,count in counts.most_common()]
 
 def generate_html(summary,title,subtitle,period,group,lang="es"):
-    L=labels(lang); security_count=summary["security_count"]; critical_count=summary["critical_count"]; all_ips=summary["source_ips"]; agents=summary["agents"]; categories=summary["categories"]; firewall_rows=summary["firewall_rows"]; firewall_ips=summary["firewall_ips"]
+    L=labels(lang); security_count=summary["security_count"]; critical_count=summary["critical_count"]; all_ips=summary["source_ips"]; agents=summary["agents"]; agent_stats=summary["agent_stats"]; categories=summary["categories"]; firewall_rows=summary["firewall_rows"]; firewall_ips=summary["firewall_ips"]
     bg="#eef2f5"; dark="#182a33"; orange="#f58220"; text="#263238"; muted="#607d8b"; border="#d6e0e5"; page=[f"<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'></head><body style='margin:0;padding:0;background:{bg};font-family:Arial,Helvetica,sans-serif;color:{text};'>"]
     page.append("<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:100%;'><tr><td align='center' style='padding:12px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='width:90%;background:#ffffff;border:1px solid #d5dde2;'>")
     page.append(f"<tr><td style='background:{dark};border-bottom:5px solid {orange};padding:16px 20px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr><td valign='middle'><img src='{LOGO_URL}' alt='OrangeBox IT Services' style='display:block;max-width:210px;height:auto;max-height:55px;border:0;'></td><td align='right' valign='middle' style='padding-left:10px;color:#fff;font-size:18px;font-weight:bold;'>Wazuh<div style='font-size:9px;color:#b8c5cb;'>SECURITY MONITORING</div></td></tr></table></td></tr>")
@@ -358,9 +364,13 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
         for mitre_id,name,meaning,count in mitre: page.append(f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-weight:bold;color:#d65d00;font-size:11px;'>{esc(mitre_id)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;'>{esc(name)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;line-height:1.35;'>{esc(meaning)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:11px;'>{count:,}</td></tr>")
         page.append("</table></td></tr>")
     else: page.append("<tr><td style='padding:10px 14px;color:#78909c;font-size:12px;'>No se encontraron técnicas MITRE ATT&CK en las alertas del período.</td></tr>")
-    page.append(section_close()); page.append(section_open("🖥",L["agents"])); page.append("<tr><td style='padding:0 8px 8px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>Sistema</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>Detecciones</td></tr>")
-    for (agent_id,name),count in agents.most_common(15): page.append(f"<tr><td style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;'><b>{esc(name)}</b><br><span style='color:#78909c;font-size:10px;'>ID {esc(agent_id)}</span></td><td style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:11px;'>{count:,}</td></tr>")
-    if not agents: page.append("<tr><td colspan='2' style='padding:10px;color:#147a4a;'>Sin actividad relevante.</td></tr>")
+    page.append(section_close()); page.append(section_open("🖥",L["agents"]))
+    page.append("<tr><td style='padding:0 8px 8px;color:#78909c;font-size:11px;'>Resumen por sistema: eventos de seguridad, severidad, diversidad de orígenes y alertas clasificadas como ataque.</td></tr>")
+    page.append("<tr><td style='padding:0 8px 8px;overflow-wrap:anywhere;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>Sistema</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;text-align:center;'>Eventos</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;text-align:center;'>Alta severidad</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;text-align:center;'>IPs origen</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;text-align:center;'>Alertas de ataque</td></tr>")
+    for (agent_id,name),count in agents.most_common(15):
+        info=agent_stats[(agent_id,name)]
+        page.append(f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;'><b>{esc(name)}</b></td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:11px;'>{info['events']:,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:11px;'>{info['high']:,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:11px;'>{len(info['ips']):,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:11px;'>{info['attacks']:,}</td></tr>")
+    if not agents: page.append("<tr><td colspan='5' style='padding:10px;color:#147a4a;'>Sin actividad relevante.</td></tr>")
     page.append("</table></td></tr>"); page.append(section_close()); page.append(f"<tr><td style='padding:10px 14px 18px;'><div style='background:#f7f9fa;border:1px solid #dce5e9;border-left:4px solid {orange};padding:10px 12px;font-size:11px;line-height:1.5;color:#526873;'>{esc(L['technical_note'])}</div></td></tr><tr><td style='background:{dark};border-top:4px solid {orange};padding:14px 20px;color:#c7d2d7;font-size:10px;'><b style='color:#fff;'>ORANGEBOX IT SERVICES</b><br>Monitoreo y seguridad de infraestructura</td></tr></table></td></tr></table></body></html>")
     return "".join(page)
 
