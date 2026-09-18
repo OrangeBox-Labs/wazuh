@@ -305,9 +305,21 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
     def section_close(): return "</table></td></tr>"
     page.append(section_open("🛡",L["firewall"],L["firewall_sub"]))
     if firewall_rows:
+        # Agrupa las ejecuciones reales de firewall-drop por motivo de bloqueo.
+        # Una IP cuenta una sola vez dentro de cada motivo, aunque haya más de
+        # una ejecución/alerta asociada al mismo bloqueo.
+        firewall_by_reason=defaultdict(lambda: {"ips":set(), "attempts":0, "rules":set()})
+        for row in firewall_rows:
+            reason_key=(row["rule_id"],row["description"])
+            firewall_by_reason[reason_key]["ips"].update(row["ips"])
+            firewall_by_reason[reason_key]["attempts"] += row["attempts"]
+            firewall_by_reason[reason_key]["rules"].add(row["rule_id"])
+        firewall_reasons=sorted(firewall_by_reason.items(), key=lambda item:(-len(item[1]["ips"]), -item[1]["attempts"], item[0][0]))
+
         page.append("<tr><td style='padding:0 8px 8px;overflow-wrap:anywhere;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'>")
-        page.append(f"<tr><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['agent'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['reason'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['rule'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['attempts'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['blocked_ips'])}</td></tr>")
-        for row in firewall_rows: page.append(f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:12px;'><b>{esc(row['agent_name'])}</b><br><span style='font-size:10px;color:#607d8b;'>ID {esc(row['agent_id'])}</span></td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:12px;'>{esc(row['description'])}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-weight:bold;color:#d65d00;font-size:12px;'>{esc(row['rule_id'])}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{row['attempts']:,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{len(row['ips']):,}</td></tr>")
+        page.append(f"<tr><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['reason'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['rule'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['blocked_ips'])}</td><td style='background:#29414c;color:#fff;padding:8px;font-size:11px;font-weight:bold;'>{esc(L['attempts'])}</td></tr>")
+        for (rule_id,description),data in firewall_reasons:
+            page.append(f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:12px;overflow-wrap:anywhere;'>{esc(description)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-weight:bold;color:#d65d00;font-size:12px;'>{esc(rule_id)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{len(data['ips']):,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{data['attempts']:,}</td></tr>")
         page.append("</table></td></tr>")
     else: page.append(f"<tr><td style='padding:10px 14px;color:#147a4a;font-size:12px;'>{esc(L['no_firewall'])}</td></tr>")
     page.append(f"<tr><td style='background:#edf6fb;border-left:4px solid {orange};padding:10px 13px;color:#49616b;font-size:12px;'><b>{len(firewall_ips):,}</b> {esc(L['blocked_ips'].lower())} automáticamente · <b>{sum(row['attempts'] for row in firewall_rows):,}</b> {esc(L['attempts'].lower())} asociados a estos bloqueos.</td></tr><tr><td style='padding:0 14px 12px;color:#78909c;font-size:11px;'>{esc(L['firewall_note'])}</td></tr>")
