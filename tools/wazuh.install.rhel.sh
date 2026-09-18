@@ -207,9 +207,8 @@ EOF
 
     # La configuración queda persistente en /etc/shorewall/rules.
     # En EL6 Shorewall puede estar gestionado por init.d y el comando
-    # "shorewall restart" es el mecanismo requerido en este entorno EL6 aunque "shorewall check"
-    # haya validado correctamente la configuración. No hacemos fallar toda
-    # la instalación por un reload no soportado/no necesario.
+    # Solo reiniciamos Shorewall si acabamos de modificar la configuración.
+    # Si ORANGEBOX-FW ya existía, no se toca el firewall.
     if [ "$shorewall_changed" -eq 1 ]; then
         if has service && service shorewall status >/dev/null 2>&1; then
             if shorewall restart >/dev/null 2>&1; then
