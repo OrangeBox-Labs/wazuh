@@ -355,6 +355,8 @@ configure_rsyslog() {
         chown root:root "$FIREWALL_LOG"
     fi
 
+    local rsyslog_changed=0
+
     if ! rsyslog_rule_exists; then
         local line
         line="$(grep -n -E '^\\*\\.info;mail\\.none;authpriv\\.none;cron\\.none[[:space:]].*/var/log/messages' /etc/rsyslog.conf | head -n1 | cut -d: -f1)"
@@ -369,15 +371,20 @@ configure_rsyslog() {
 
         mv /etc/rsyslog.conf.orangebox.tmp /etc/rsyslog.conf \
             || fail "No se pudo actualizar rsyslog.conf."
+        rsyslog_changed=1
+    else
+        ok "Regla rsyslog ORANGEBOX-FW ya existe; no se modifica."
     fi
 
     rsyslog_rule_exists || fail "No se pudo validar la regla rsyslog."
     rsyslogd -N1 >/dev/null 2>&1 || fail "rsyslogd rechazó la configuración."
 
-    if has systemctl; then
-        systemctl restart rsyslog || fail "No se pudo reiniciar rsyslog."
-    else
-        service rsyslog restart || fail "No se pudo reiniciar rsyslog."
+    if [ "$rsyslog_changed" -eq 1 ]; then
+        if has systemctl; then
+            systemctl restart rsyslog || fail "No se pudo reiniciar rsyslog."
+        else
+            service rsyslog restart || fail "No se pudo reiniciar rsyslog."
+        fi
     fi
 
     local marker="ORANGEBOX-RSYSLOG-TEST-$(date +%s)"
