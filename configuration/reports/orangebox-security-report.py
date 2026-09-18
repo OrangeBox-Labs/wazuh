@@ -166,11 +166,27 @@ def parse_event(outer):
         data=outer.get("data") or {}
         command=data.get("command")
         params=data.get("parameters") or {}
-        if command not in {"add","delete"}: return None
+
+        # Wazuh 4.x normally exposes Active Response as structured JSON.
+        # Keep a raw full_log fallback for archived/legacy alert formats so
+        # historical firewall-drop executions are not lost from reports.
+        if command not in {"add","delete"}:
+            payload=extract_firewall_payload(outer.get("full_log",""))
+            if isinstance(payload,dict):
+                command=payload.get("command")
+                params=payload.get("parameters") or {}
+                if not params and payload.get("program"):
+                    params={"program":payload.get("program")}
+                if payload.get("alert"):
+                    params["alert"]=payload.get("alert")
+            if command not in {"add","delete"}:
+                return None
+
         if params.get("program") not in {
             "active-response/bin/firewall-drop",
             "/var/ossec/active-response/bin/firewall-drop",
-        }: return None
+        }:
+            return None
         alert=params.get("alert") or {}
         alert_rule=alert.get("rule") or {}
         agent=alert.get("agent") or {}
