@@ -203,7 +203,7 @@ def page2(c,s,g,l,p,W,H,report):
  txt(c," · ".join(blocked_rules) if blocked_rules else "Sin ejecuciones registradas",right_x+14,bottom_y+14,6.5,TEXT,"Helvetica-Bold")
  footer(c,W); c.showPage()
 
-def build(def build(path,s,g,start,end,label,report):
+def build(path,s,g,start,end,label,report):
  W,H=landscape(A4); c=canvas.Canvas(str(path),pagesize=(W,H)); c.setTitle(f"OrangeBox Security Dashboard - {g}"); c.setAuthor("OrangeBox IT Services")
  now=datetime.now().astimezone(); ec=end if end.tzinfo else end.replace(tzinfo=now.tzinfo); p=f"{start:%d/%m/%Y %H:%M} — {end:%d/%m/%Y %H:%M}" if ec<=now else f"{start:%d/%m/%Y %H:%M} — ahora"
  page1(c,s,g,label,p,W,H); page2(c,s,g,label,p,W,H,report); c.save()
