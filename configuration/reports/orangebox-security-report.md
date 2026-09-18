@@ -1,8 +1,8 @@
-# firewall-drop-daily.py
+# orangebox-security-report.py
 
 Motor de reportes **OrangeBox Wazuh Security Activity Report**.
 
-Aunque conserva su nombre histórico `firewall-drop-daily.py`, el script genera reportes diarios, semanales, mensuales y anuales, globales o filtrados por grupo Wazuh.
+El script genera reportes diarios, semanales, mensuales y anuales, globales o filtrados por grupo Wazuh.
 
 ## Fuente de datos
 
@@ -49,10 +49,10 @@ El destinatario se entrega explícitamente con `--email` y es obligatorio.
 El idioma por defecto es español. `--lang es|en` permite cambiar el idioma de títulos y etiquetas; las descripciones técnicas de Wazuh se conservan.
 
 ```bash
-firewall-drop-daily.py --yesterday --group all --email soporte@orangebox.cl
-firewall-drop-daily.py --lastmonth --group Nexit --email soporte@nexit.cl
-firewall-drop-daily.py --thismonth --group CTS --email soporte@cts.cl --lang es
-firewall-drop-daily.py --lastyear --group all --email soporte@orangebox.cl --lang en
+orangebox-security-report.py --yesterday --group all --email <destinatario>
+orangebox-security-report.py --lastmonth --group <grupo_cliente> --email <destinatario>
+orangebox-security-report.py --thismonth --group <grupo_cliente> --email <destinatario> --lang es
+orangebox-security-report.py --lastyear --group all --email <destinatario> --lang en
 ```
 
 El correo se entrega mediante Postfix/SMTP local (`localhost:25`) y utiliza:
@@ -218,19 +218,19 @@ Los eventos de prueba controlada OrangeBox se mantienen dentro de los reportes. 
 Reporte diario global a las 10:00:
 
 ```cron
-0 10 * * * root /var/ossec/reports/firewall-drop-daily.py --yesterday --group all --email soporte@orangebox.cl
+0 10 * * * root /var/ossec/reports/orangebox-security-report.py --yesterday --group all --email <destinatario>
 ```
 
 Reporte mensual global el día 1 a las 10:00:
 
 ```cron
-0 10 1 * * root /var/ossec/reports/firewall-drop-daily.py --lastmonth --group all --email soporte@orangebox.cl
+0 10 1 * * root /var/ossec/reports/orangebox-security-report.py --lastmonth --group all --email <destinatario>
 ```
 
 Reporte mensual de un cliente:
 
 ```cron
-0 10 1 * * root /var/ossec/reports/firewall-drop-daily.py --lastmonth --group Nexit --email soporte@nexit.cl
+0 10 1 * * root /var/ossec/reports/orangebox-security-report.py --lastmonth --group <grupo_cliente> --email <destinatario>
 ```
 
 Agregar o retirar un reporte de cliente consiste únicamente en agregar o eliminar una línea de cron.
@@ -242,9 +242,9 @@ El correo del cliente no se define dentro del código. Cron entrega el destinata
 Por ejemplo:
 
 ```bash
---group Nexit --email soporte@nexit.cl
+--group <grupo_cliente> --email <destinatario>
 ```
 
-contendrá exclusivamente agentes que Wazuh identifica como pertenecientes a `Nexit`.
+contendrá exclusivamente agentes que Wazuh identifica como pertenecientes al grupo indicado.
 
 No se deben utilizar listas manuales de agentes dentro del script para reemplazar la pertenencia oficial a grupos Wazuh.
