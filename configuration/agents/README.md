@@ -12,4 +12,4 @@ Cada perfil debe mantener su archivo funcional acompañado de documentación té
 
 La configuración de agentes debe recopilar la evidencia necesaria para las reglas sin convertir el FIM en una fuente indiscriminada de ruido.
 
-Las detecciones futuras que dependan de logs locales, como escaneo de puertos, DDoS y `firewall-drop`, deberán incorporarse coordinadamente con el despliegue de agentes.
+La configuración actual ya contempla la recolección base de los eventos de firewall utilizados por las detecciones OrangeBox. Los cambios en esta capa deben mantenerse coordinados con el ruleset y el instalador.
