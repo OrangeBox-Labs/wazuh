@@ -349,7 +349,9 @@ configure_firewall() {
 # ---------------------------------------------------------------------------
 
 rsyslog_rule_exists() {
-    [ -f "$RSYSLOG_FILE" ] &&     grep -Fq ':msg, contains, "ORANGEBOX-FW" -/var/log/orangebox-firewall.log' "$RSYSLOG_FILE" &&     grep -Fxq ':msg, contains, "ORANGEBOX-FW" ~' "$RSYSLOG_FILE"
+    [ -f "$RSYSLOG_FILE" ] &&     grep -Fq ':msg, contains, "ORANGEBOX-FW" -/var/log/orangebox-firewall.log' "$RSYSLOG_FILE" &&     grep -Fxq ':msg, contains, "ORANGEBOX-FW" ~' "$RSYSLOG_FILE" && \
+    grep -Fq ':msg, contains, "LOG:ORANGEB" -/var/log/orangebox-firewall.log' "$RSYSLOG_FILE" && \
+    grep -Fxq ':msg, contains, "LOG:ORANGEB" ~' "$RSYSLOG_FILE"
 }
 
 remove_legacy_rsyslog_rule() {
@@ -412,6 +414,8 @@ configure_rsyslog() {
 # OrangeBox - Wazuh firewall logging
 :msg, contains, "ORANGEBOX-FW" -/var/log/orangebox-firewall.log
 :msg, contains, "ORANGEBOX-FW" ~
+:msg, contains, "LOG:ORANGEB" -/var/log/orangebox-firewall.log
+:msg, contains, "LOG:ORANGEB" ~
 EOF
         chmod 644 "$RSYSLOG_FILE"
         rsyslog_changed=1
