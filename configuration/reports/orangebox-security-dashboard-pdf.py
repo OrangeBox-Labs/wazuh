@@ -518,6 +518,7 @@ def build_pdf(path, summary, group, start, end, label, report):
     story.extend([rankings, Spacer(1, 5 * mm)])
 
     # Firewall detail: actual 651 executions, not just trigger rules.
+    # First show one row per origin rule with the total impact.
     fw_rows = []
     for row in summary["firewall_rows"]:
         fw_rows.append([
@@ -526,14 +527,35 @@ def build_pdf(path, summary, group, start, end, label, report):
             row["description"],
             num(row["attempts"]),
             num(len(row["ips"])),
-            ", ".join(row["ips"][:8]),
         ])
     if fw_rows:
         story.extend(detail_table(
             "Bloqueos automáticos registrados por Wazuh",
             fw_rows,
-            ["Sistema", "Regla origen", "Motivo", "Intentos", "IPs bloqueadas", "IPs"],
+            ["Sistema", "Regla origen", "Motivo", "Intentos", "IPs bloqueadas"],
         ))
+
+        # Then show EVERY blocked IP. This is intentionally separate
+        # from the grouped rule summary so the dashboard does not
+        # truncate the list to the first N addresses.
+        ip_rows = []
+        for row in summary["firewall_rows"]:
+            for srcip in row["ips"]:
+                ip_rows.append([
+                    row["agent_name"],
+                    row["rule_id"],
+                    srcip,
+                ])
+
+        if ip_rows:
+            story.extend([
+                Spacer(1, 4 * mm),
+                *detail_table(
+                    "Detalle completo de IPs bloqueadas",
+                    ip_rows,
+                    ["Sistema", "Regla origen", "IP bloqueada"],
+                ),
+            ])
     else:
         story.append(Table(
             [[Paragraph(
