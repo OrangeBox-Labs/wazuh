@@ -34,7 +34,7 @@ La separación no es solamente estética. Cada componente tiene una responsabili
 - **`integrations/`**: código que conecta Wazuh con servicios externos o con el mecanismo de alertamiento OrangeBox.
 - **`manager/`**: configuración del Wazuh Manager y sus módulos globales.
 - **`reports/`**: generación de reportes de actividad a partir de las alertas de Wazuh.
-- **`rules/`**: interpretación y correlación de eventos mediante reglas XML y firmas YARA.
+- **`rules/`**: interpretación y correlación de eventos mediante reglas XML y firmas YARA experimentales.
 - **`scripts/`**: automatizaciones auxiliares que no pertenecen directamente al ruleset ni a la configuración del Manager.
 
 ## Documentación
@@ -69,7 +69,7 @@ La capa de FIM también utiliza Who-Data en rutas críticas para conservar infor
 
 El proyecto seguirá evolucionando. Entre los próximos trabajos están:
 
-- conectar completamente las firmas YARA al pipeline de detección FIM;
+- evaluar y definir una estrategia de análisis de contenido para webshells;
 - revisar la política preventiva de puertos del firewall;
 - mejorar el envío de alertas por grupo y cliente;
 - ampliar pruebas automatizadas del ruleset y de las integraciones.
