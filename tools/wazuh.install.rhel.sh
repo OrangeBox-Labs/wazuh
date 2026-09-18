@@ -353,7 +353,7 @@ rsyslog_rule_exists() {
 }
 
 remove_legacy_rsyslog_rule() {
-    [ -f /etc/rsyslog.conf ] || return 0
+    [ -f /etc/rsyslog.conf ] || return 1
 
     if grep -Fq ':msg, contains, "ORANGEBOX-FW" -/var/log/orangebox-firewall.log' /etc/rsyslog.conf; then
         cp -p /etc/rsyslog.conf             "/etc/rsyslog.conf.orangebox-backup.$(date +%Y%m%d%H%M%S)"             || fail "No se pudo respaldar rsyslog.conf."
@@ -376,7 +376,10 @@ remove_legacy_rsyslog_rule() {
         mv /etc/rsyslog.conf.orangebox.tmp /etc/rsyslog.conf             || fail "No se pudo actualizar rsyslog.conf."
 
         ok "Regla OrangeBox antigua removida de rsyslog.conf."
+        return 0
     fi
+
+    return 1
 }
 
 configure_rsyslog() {
@@ -394,13 +397,16 @@ configure_rsyslog() {
 
     local rsyslog_changed=0
 
-    remove_legacy_rsyslog_rule
-    if grep -Fq ':msg, contains, "ORANGEBOX-FW" -/var/log/orangebox-firewall.log' /etc/rsyslog.conf; then
+    if remove_legacy_rsyslog_rule; then
         rsyslog_changed=1
     fi
 
-    if rsyslog_rule_exists; then
-        ok "Configuración rsyslog OrangeBox ya existe; no se modifica."
+    if [ -f "$RSYSLOG_FILE" ]; then
+        if rsyslog_rule_exists; then
+            ok "Configuración rsyslog OrangeBox ya existe; no se modifica."
+        else
+            fail "$RSYSLOG_FILE existe pero no contiene la configuración OrangeBox esperada. No se sobrescribe."
+        fi
     else
         cat > "$RSYSLOG_FILE" <<'EOF'
 # OrangeBox - Wazuh firewall logging
