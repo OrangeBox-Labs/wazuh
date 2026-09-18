@@ -23,6 +23,8 @@ WAZUH_OSSEC_VG="${WAZUH_OSSEC_VG:-}"
 FIREWALL_LOG="/var/log/orangebox-firewall.log"
 LOGROTATE_FILE="/etc/logrotate.d/orangebox-firewall"
 RSYSLOG_FILE="/etc/rsyslog.d/orangebox-firewall.conf"
+WAZUH_FIREWALL_HELPER="/var/ossec/bin/orangebox-iptables"
+WAZUH_FIREWALL_DROPIN="/etc/systemd/system/wazuh-agent.service.d/20-orangebox-firewall.conf"
 EL_MAJOR=""
 LOGGING_BACKEND=""
 
@@ -477,6 +479,105 @@ iptables_return_rule_exists() {
         grep -F 'RETURN' >/dev/null 2>&1
 }
 
+configure_wazuh_agent_firewall_hook() {
+    if ! has systemctl; then
+        warn "systemctl no está disponible; no se instalará el hook persistente del firewall en wazuh-agent."
+        return 1
+    fi
+
+    systemctl cat wazuh-agent.service >/dev/null 2>&1 || {
+        step_error "El servicio wazuh-agent.service no existe; no se pudo instalar el hook persistente del firewall."
+        return 1
+    }
+
+    mkdir -p "$(dirname "$WAZUH_FIREWALL_HELPER")" || {
+        step_error "No se pudo crear el directorio de $WAZUH_FIREWALL_HELPER."
+        return 1
+    }
+
+    cat > "$WAZUH_FIREWALL_HELPER" <<'EOF'
+#!/bin/bash
+# OrangeBox - asegura la regla de logging antes de iniciar wazuh-agent.
+set -u
+IPTABLES="$(command -v iptables 2>/dev/null || true)"
+[ -n "$IPTABLES" ] || exit 0
+
+chain_exists() {
+    "$IPTABLES" -L ORANGEBOX-FW -n >/dev/null 2>&1
+}
+
+log_rule_exists() {
+    "$IPTABLES" -L ORANGEBOX-FW -n 2>/dev/null |
+        awk '$1 == "LOG" && /ORANGEBOX-FW/ { found=1 } END { exit !found }'
+}
+
+return_rule_exists() {
+    "$IPTABLES" -L ORANGEBOX-FW -n 2>/dev/null |
+        awk '$1 == "RETURN" { found=1 } END { exit !found }'
+}
+
+input_rule_exists() {
+    "$IPTABLES" -L INPUT -n 2>/dev/null |
+        awk '$1 == "ORANGEBOX-FW" { found=1 } END { exit !found }'
+}
+
+chain_exists || "$IPTABLES" -N ORANGEBOX-FW || exit 1
+log_rule_exists || "$IPTABLES" -A ORANGEBOX-FW \
+    -m limit --limit 20/second --limit-burst 40 \
+    -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4 || exit 1
+return_rule_exists || "$IPTABLES" -A ORANGEBOX-FW -j RETURN || exit 1
+input_rule_exists || "$IPTABLES" -I INPUT 1 \
+    -p tcp --tcp-flags SYN SYN \
+    ! -s 127.0.0.0/8 \
+    -j ORANGEBOX-FW || exit 1
+exit 0
+EOF
+
+    chmod 755 "$WAZUH_FIREWALL_HELPER" || {
+        step_error "No se pudo hacer ejecutable $WAZUH_FIREWALL_HELPER."
+        return 1
+    }
+
+    mkdir -p "$(dirname "$WAZUH_FIREWALL_DROPIN")" || {
+        step_error "No se pudo crear el directorio del drop-in de wazuh-agent."
+        return 1
+    }
+
+    if [ -f "$WAZUH_FIREWALL_DROPIN" ]; then
+        if grep -Fxq 'ExecStartPre=-/var/ossec/bin/orangebox-iptables' "$WAZUH_FIREWALL_DROPIN"; then
+            ok "Hook persistente del firewall para wazuh-agent ya existe."
+        else
+            step_error "$WAZUH_FIREWALL_DROPIN existe pero no contiene el hook OrangeBox esperado; no se sobrescribe."
+            return 1
+        fi
+    else
+        cat > "$WAZUH_FIREWALL_DROPIN" <<'EOF'
+[Service]
+# OrangeBox - asegurar las reglas de logging antes de iniciar Wazuh Agent.
+# El prefijo - evita bloquear el arranque del agente si iptables no está disponible.
+ExecStartPre=-/var/ossec/bin/orangebox-iptables
+EOF
+        chmod 644 "$WAZUH_FIREWALL_DROPIN" || {
+            step_error "No se pudo establecer permisos en $WAZUH_FIREWALL_DROPIN."
+            return 1
+        }
+        ok "Hook persistente del firewall agregado a wazuh-agent."
+    fi
+
+    systemctl daemon-reload || {
+        step_error "systemctl daemon-reload falló después de instalar el hook del firewall."
+        return 1
+    }
+
+    if "$WAZUH_FIREWALL_HELPER"; then
+        ok "Hook del firewall probado correctamente en el estado actual."
+    else
+        step_error "El hook del firewall no pudo aplicar/validar las reglas actuales."
+        return 1
+    fi
+
+    return 0
+}
 configure_iptables() {
     if ! has iptables; then
         step_error "iptables no está instalado."
@@ -588,9 +689,15 @@ configure_iptables() {
         failed=1
     fi
 
-    if [ -f /etc/sysconfig/iptables ]; then
+    if [ "$EL_MAJOR" -ge 7 ] 2>/dev/null; then
+        if configure_wazuh_agent_firewall_hook; then
+            ok "Persistencia del firewall asociada a wazuh-agent configurada."
+        else
+            failed=1
+        fi
+    elif [ -f /etc/sysconfig/iptables ]; then
         if has service && service iptables save >/dev/null 2>&1; then
-            ok "Configuración iptables persistida."
+            ok "Configuración iptables persistida para EL6."
         elif iptables-save > /etc/sysconfig/iptables; then
             ok "Configuración iptables persistida mediante iptables-save."
         else
@@ -598,7 +705,7 @@ configure_iptables() {
             failed=1
         fi
     else
-        warn "No existe /etc/sysconfig/iptables; no se fuerza persistencia."
+        warn "No existe /etc/sysconfig/iptables en EL6; no se fuerza persistencia."
     fi
 
     if [ "$failed" -eq 0 ]; then
@@ -796,20 +903,19 @@ EOF
 configure_logging() {
     case "$LOGGING_BACKEND" in
         rsyslog)
-            echo "==> Configurando rsyslog para EL6..."
+            echo "==> Configurando rsyslog + logrotate para EL6..."
             (configure_rsyslog) || step_error "El paso rsyslog falló; se continuará con logrotate y el resto de la instalación."
+            echo "==> Configurando logrotate para EL6..."
+            (configure_logrotate) || step_error "El paso logrotate falló; se continuará con el resto de la instalación."
             ;;
         journald)
             echo "==> Configurando journald para EL${EL_MAJOR}+..."
-            (configure_journald) || step_error "El paso journald falló; se continuará con logrotate y el resto de la instalación."
+            (configure_journald) || step_error "El paso journald falló; se continuará con el resto de la instalación."
             ;;
         *)
             step_error "Backend de logging no definido: ${LOGGING_BACKEND:-vacío}."
             ;;
     esac
-
-    echo "==> Configurando logrotate..."
-    (configure_logrotate) || step_error "El paso logrotate falló; se continuará con la instalación."
 }
 
 # ---------------------------------------------------------------------------
