@@ -1,690 +1,164 @@
 #!/usr/bin/env python3
-"""OrangeBox Wazuh Security Dashboard PDF.
-
-Genera un dashboard PDF visual, independiente del HTML de correo.
-La extracción de datos se delega íntegramente a orangebox-security-report.py.
-Requiere reportlab.
-"""
-
-import argparse
-import os
-import re
-import smtplib
-import urllib.request
+"""OrangeBox Wazuh Security Dashboard PDF — visual SOC dashboard."""
+import argparse,os,re,smtplib,urllib.request
 from datetime import datetime
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from importlib.util import module_from_spec, spec_from_file_location
+from importlib.util import module_from_spec,spec_from_file_location
 from pathlib import Path
-
+from collections import Counter
 try:
-    from reportlab.lib import colors
-    from reportlab.lib.enums import TA_LEFT, TA_RIGHT
-    from reportlab.lib.pagesizes import A4, landscape
-    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-    from reportlab.lib.units import mm
-    from reportlab.platypus import (
-        BaseDocTemplate,
-        Frame,
-        HRFlowable,
-        Image,
-        KeepTogether,
-        PageBreak,
-        Paragraph,
-        Spacer,
-        Table,
-        TableStyle,
-    )
-    from reportlab.graphics.shapes import Drawing, String
-    from reportlab.graphics.charts.barcharts import HorizontalBarChart
-    from reportlab.graphics.charts.linecharts import HorizontalLineChart
-    from reportlab.graphics.charts.legends import Legend
-    from reportlab.graphics.charts.piecharts import Pie
+ from reportlab.pdfgen import canvas
+ from reportlab.lib import colors
+ from reportlab.lib.pagesizes import A4,landscape
+ from reportlab.lib.utils import ImageReader
 except ImportError as exc:
-    raise SystemExit(
-        "Falta reportlab. Instálalo en el entorno que ejecutará este reporte "
-        "(por ejemplo, el paquete python3-reportlab)."
-    ) from exc
+ raise SystemExit("Falta reportlab. Instálalo en el entorno que ejecutará este reporte (por ejemplo, python3-reportlab).") from exc
 
+BASE_DIR=Path(__file__).resolve().parent
+REPORT_PATH=BASE_DIR/"orangebox-security-report.py"
+DEFAULT_FROM="wazuh@orangebox.cl"; SMTP_HOST="localhost"; SMTP_PORT=25
+LOGO_URL="https://www.orangebox.cl/obox/img/logo-dark.png"
+NAVY=colors.HexColor("#162831"); NAVY2=colors.HexColor("#213b46")
+ORANGE=colors.HexColor("#f58220"); ORANGE2=colors.HexColor("#ff9b3d")
+RED=colors.HexColor("#d44736"); CYAN=colors.HexColor("#2bb7b0")
+BLUE=colors.HexColor("#4f86c6"); PURPLE=colors.HexColor("#8067b7")
+TEXT=colors.HexColor("#263238"); MUTED=colors.HexColor("#6b7f87")
+GRID=colors.HexColor("#dbe3e6"); WHITE=colors.white
+CAT={"authentication":"AUTENTICACIÓN","web":"WEB","fim":"INTEGRIDAD","malware":"MALWARE / WEBSHELL","privilege":"PRIVILEGIOS","attack":"ATAQUES"}
+CC={"authentication":ORANGE,"web":BLUE,"fim":CYAN,"malware":RED,"privilege":PURPLE,"attack":ORANGE2}
 
-BASE_DIR = Path(__file__).resolve().parent
-REPORT_PATH = BASE_DIR / "orangebox-security-report.py"
-DEFAULT_FROM = "wazuh@orangebox.cl"
-SMTP_HOST = "localhost"
-SMTP_PORT = 25
-LOGO_URL = "https://www.orangebox.cl/obox/img/logo-dark.png"
-
-NAVY = colors.HexColor("#182a33")
-NAVY2 = colors.HexColor("#213b46")
-ORANGE = colors.HexColor("#f58220")
-ORANGE_DARK = colors.HexColor("#d65d00")
-TEXT = colors.HexColor("#263238")
-MUTED = colors.HexColor("#607d8b")
-BORDER = colors.HexColor("#d7e0e4")
-TRACK = colors.HexColor("#e7edef")
-LIGHT = colors.HexColor("#f3f6f7")
-WHITE = colors.white
-RED = colors.HexColor("#c43d2b")
-RED_DARK = colors.HexColor("#6b2923")
-GREEN = colors.HexColor("#147a4a")
-
-
-def load_report_module():
-    spec = spec_from_file_location("orangebox_security_report", REPORT_PATH)
-    if spec is None or spec.loader is None:
-        raise SystemExit(f"No se pudo cargar {REPORT_PATH}")
-    module = module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def num(value):
-    return f"{int(value):,}".replace(",", ".")
-
-
-def esc(value):
-    return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
-def logo_path():
-    target = Path("/tmp/orangebox-dashboard-logo.png")
-    try:
-        if not target.exists():
-            urllib.request.urlretrieve(LOGO_URL, target)
-        return target
-    except Exception:
-        return None
-
-
-class DashboardDocTemplate(BaseDocTemplate):
-    def __init__(self, filename, **kwargs):
-        super().__init__(filename, pagesize=landscape(A4), **kwargs)
-        width, height = landscape(A4)
-        frame = Frame(12 * mm, 12 * mm, width - 24 * mm, height - 24 * mm,
-                      leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
-        self.addPageTemplates([])
-
-
-def make_styles():
-    styles = getSampleStyleSheet()
-    return {
-        "title": ParagraphStyle(
-            "DashTitle", parent=styles["Title"], fontName="Helvetica-Bold",
-            fontSize=22, leading=24, textColor=WHITE, spaceAfter=2
-        ),
-        "subtitle": ParagraphStyle(
-            "DashSubtitle", parent=styles["Normal"], fontName="Helvetica",
-            fontSize=8.5, leading=11, textColor=colors.HexColor("#cbd7dc")
-        ),
-        "section": ParagraphStyle(
-            "Section", parent=styles["Heading2"], fontName="Helvetica-Bold",
-            fontSize=12, leading=14, textColor=TEXT, spaceAfter=5
-        ),
-        "small": ParagraphStyle(
-            "Small", parent=styles["Normal"], fontName="Helvetica",
-            fontSize=7.5, leading=9.5, textColor=MUTED
-        ),
-        "body": ParagraphStyle(
-            "Body", parent=styles["Normal"], fontName="Helvetica",
-            fontSize=8.5, leading=11, textColor=TEXT
-        ),
-        "tiny": ParagraphStyle(
-            "Tiny", parent=styles["Normal"], fontName="Helvetica",
-            fontSize=6.5, leading=8, textColor=MUTED
-        ),
-        "kpi": ParagraphStyle(
-            "Kpi", parent=styles["Normal"], fontName="Helvetica-Bold",
-            fontSize=20, leading=21, alignment=TA_LEFT, textColor=ORANGE
-        ),
-        "kpilabel": ParagraphStyle(
-            "KpiLabel", parent=styles["Normal"], fontName="Helvetica-Bold",
-            fontSize=7.5, leading=9, textColor=WHITE
-        ),
-        "kpinote": ParagraphStyle(
-            "KpiNote", parent=styles["Normal"], fontName="Helvetica",
-            fontSize=6.5, leading=8, textColor=colors.HexColor("#c8d7dc")
-        ),
-        "right": ParagraphStyle(
-            "Right", parent=styles["Normal"], fontName="Helvetica",
-            fontSize=7.5, leading=9, textColor=MUTED, alignment=TA_RIGHT
-        ),
-    }
-
-
-def header_table(group, label, period, styles):
-    logo = logo_path()
-    if logo:
-        logo_flow = Image(str(logo), width=45 * mm, height=13 * mm, kind="proportional")
-    else:
-        logo_flow = Paragraph(
-            "<font color='#f58220'><b>Orange</b></font><font color='#ffffff'><b>Box</b></font>",
-            ParagraphStyle("LogoFallback", fontName="Helvetica-Bold", fontSize=20)
-        )
-
-    right = [
-        Paragraph("SECURITY DASHBOARD", styles["title"]),
-        Paragraph(f"WAZUH · {esc(label.upper())} · {esc(group)}", styles["subtitle"]),
-    ]
-    t = Table([[logo_flow, right]], colWidths=[100 * mm, 167 * mm], rowHeights=[20 * mm])
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), NAVY),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("LINEBELOW", (0, 0), (-1, -1), 3, ORANGE),
-    ]))
-    context = Table(
-        [[Paragraph("<b>Resumen de seguridad</b>", ParagraphStyle(
-            "Context", fontName="Helvetica-Bold", fontSize=15, textColor=TEXT
-        )),
-          Paragraph(f"<b>Período:</b> {esc(period)}<br/><b>Grupo:</b> {esc(group)}",
-                    styles["right"])]],
-        colWidths=[150 * mm, 117 * mm],
-    )
-    context.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), LIGHT),
-        ("BOX", (0, 0), (-1, -1), 0.5, BORDER),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 7),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-    ]))
-    return [t, Spacer(1, 4 * mm), context, Spacer(1, 5 * mm)]
-
-
-def kpi_card(label, value, note, accent=ORANGE, width=65 * mm, styles=None):
-    inner = [
-        Paragraph(num(value), ParagraphStyle(
-            "KpiValue", fontName="Helvetica-Bold", fontSize=22, leading=22, textColor=accent
-        )),
-        Paragraph(label.upper(), styles["kpilabel"]),
-        Spacer(1, 1 * mm),
-        Paragraph(note, styles["kpinote"]),
-    ]
-    t = Table([[inner]], colWidths=[width], rowHeights=[24 * mm])
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), NAVY2),
-        ("LINEBELOW", (0, 0), (-1, -1), 3, accent),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-    ]))
-    return t
-
-
-def category_chart(categories):
-    labels = []
-    values = []
-    icons = {
-        "authentication": "Autenticación",
-        "web": "Web",
-        "fim": "Integridad de archivos",
-        "malware": "Malware / WebShell",
-        "privilege": "Privilegios",
-        "attack": "Ataques",
-    }
-    for key, label in icons.items():
-        value = categories.get(key, {}).get("count", 0)
-        if value:
-            labels.append(label)
-            values.append(value)
-
-    drawing = Drawing(267 * mm, 72 * mm)
-    if not values:
-        drawing.add(String(5, 30, "Sin datos para el período", fillColor=MUTED, fontSize=10))
-        return drawing
-
-    chart = HorizontalBarChart()
-    chart.x = 82
-    chart.y = 8
-    chart.width = 170 * mm
-    chart.height = 58 * mm
-    chart.data = [values]
-    chart.categoryAxis.categoryNames = labels
-    chart.valueAxis.valueMin = 0
-    chart.valueAxis.valueMax = max(values) * 1.08
-    chart.valueAxis.valueStep = max(1, int(max(values) / 4))
-    chart.categoryAxis.labels.fontName = "Helvetica"
-    chart.categoryAxis.labels.fontSize = 7
-    chart.valueAxis.labels.fontName = "Helvetica"
-    chart.valueAxis.labels.fontSize = 6
-    chart.bars[0].fillColor = ORANGE
-    chart.bars[0].strokeColor = ORANGE
-    chart.valueAxis.strokeColor = BORDER
-    chart.valueAxis.gridStrokeColor = TRACK
-    chart.categoryAxis.strokeColor = BORDER
-    drawing.add(chart)
-    return drawing
-
-
-def timeline_chart(timeline):
-    drawing = Drawing(267 * mm, 55 * mm)
-    if not timeline:
-        drawing.add(String(5, 25, "Sin evolución temporal disponible", fillColor=MUTED, fontSize=9))
-        return drawing
-
-    dates = sorted(timeline)
-    values = [timeline[d] for d in dates]
-    chart = HorizontalLineChart()
-    chart.x = 48
-    chart.y = 8
-    chart.width = 225 * mm
-    chart.height = 40 * mm
-    chart.data = [values]
-    chart.valueAxis.valueMin = 0
-    chart.valueAxis.valueMax = max(values) * 1.1 or 1
-    chart.valueAxis.labels.fontSize = 6
-    chart.valueAxis.labels.fontName = "Helvetica"
-    chart.valueAxis.strokeColor = BORDER
-    chart.valueAxis.gridStrokeColor = TRACK
-    chart.lines[0].strokeColor = ORANGE
-    chart.lines[0].strokeWidth = 2
-    chart.lines[0].symbol = None
-    chart.categoryAxis.categoryNames = [d.strftime("%d/%m") for d in dates]
-    chart.categoryAxis.labels.fontSize = 6
-    chart.categoryAxis.labels.fontName = "Helvetica"
-    chart.categoryAxis.strokeColor = BORDER
-    drawing.add(chart)
-    return drawing
-
-
-def ranking_table(title, rows, accent=ORANGE):
-    data = [[
-        Paragraph(f"<b>{esc(title)}</b>", ParagraphStyle("RHead", fontName="Helvetica-Bold", fontSize=9, textColor=WHITE)),
-        Paragraph("<b>Volumen</b>", ParagraphStyle("RHead2", fontName="Helvetica-Bold", fontSize=8, textColor=WHITE)),
-    ]]
-    max_value = max((int(v) for _label, v in rows), default=1)
-    for index, (label, value) in enumerate(rows, 1):
-        label = str(label)
-        if len(label) > 48:
-            label = label[:45] + "..."
-        bar_width = max(4, int((float(value) / max_value) * 58))
-        bar = Table([[""]], colWidths=[bar_width * mm], rowHeights=[2.8 * mm])
-        bar.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), accent)]))
-        data.append([
-            [
-                Paragraph(f"<b>{index}. {esc(label)}</b>", ParagraphStyle(
-                    f"R{index}", fontName="Helvetica", fontSize=7.2, textColor=TEXT
-                )),
-                bar,
-            ],
-            Paragraph(num(value), ParagraphStyle(
-                f"RV{index}", fontName="Helvetica-Bold", fontSize=7.2, textColor=TEXT, alignment=TA_RIGHT
-            )),
-        ])
-
-    t = Table(data, colWidths=[55 * mm, 15 * mm])
-    t.setStyle(TableStyle([
-        ("SPAN", (0, 0), (-1, 0)),
-        ("BACKGROUND", (0, 0), (-1, 0), NAVY2),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("LINEBELOW", (0, 1), (-1, -1), 0.3, BORDER),
-    ]))
-    return t
-
-
-def detail_table(title, rows, headers):
-    data = [[Paragraph(f"<b>{esc(h)}</b>", ParagraphStyle(
-        f"H{idx}", fontName="Helvetica-Bold", fontSize=7, textColor=WHITE
-    )) for idx, h in enumerate(headers)]]
-    for row in rows:
-        data.append([Paragraph(esc(value), ParagraphStyle(
-            "D", fontName="Helvetica", fontSize=6.5, leading=8, textColor=TEXT
-        )) for value in row])
-
-    t = Table(data, repeatRows=1, hAlign="LEFT")
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), NAVY2),
-        ("GRID", (0, 0), (-1, -1), 0.3, BORDER),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    return [Paragraph(title, ParagraphStyle(
-        "DT", fontName="Helvetica-Bold", fontSize=10, textColor=TEXT, spaceAfter=2
-    )), t]
-
-
-def build_pdf(path, summary, group, start, end, label, report):
-    styles = make_styles()
-    period = (
-        f"{start.strftime('%d/%m/%Y %H:%M')} — "
-        f"{end.strftime('%d/%m/%Y %H:%M') if end <= datetime.now().astimezone() else 'ahora'}"
-    )
-
-    doc = BaseDocTemplate(
-        str(path),
-        pagesize=landscape(A4),
-        leftMargin=12 * mm,
-        rightMargin=12 * mm,
-        topMargin=12 * mm,
-        bottomMargin=12 * mm,
-        title=f"OrangeBox Security Dashboard - {group}",
-        author="OrangeBox IT Services",
-    )
-    frame = Frame(
-        doc.leftMargin, doc.bottomMargin,
-        doc.width, doc.height,
-        leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0,
-        id="dashboard",
-    )
-    doc.addPageTemplates([])
-
-    story = []
-    story.extend(header_table(group, label, period, styles))
-
-    # KPI row.
-    blocked_ips = len(summary["firewall_ips"])
-    kpis = Table([[
-        kpi_card("Eventos", summary["security_count"], "detecciones clasificadas", ORANGE, styles=styles),
-        kpi_card("Alta severidad", summary["critical_count"], "nivel Wazuh ≥ 13", RED, styles=styles),
-        kpi_card("IPs atacantes", len(summary["source_ips"]), "orígenes observados", ORANGE, styles=styles),
-        kpi_card("IPs bloqueadas", blocked_ips, "firewall-drop / Active Response", RED, styles=styles),
-    ]], colWidths=[68 * mm] * 4)
-    kpis.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 2),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
-        ("TOPPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-    ]))
-    story.extend([kpis, Spacer(1, 5 * mm)])
-
-    # Main visual area.
-    category_box = Table([[
-        [Paragraph("Actividad por categoría", styles["section"]),
-         category_chart(summary["categories"])]
-    ]], colWidths=[174 * mm])
-    category_box.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), WHITE),
-        ("BOX", (0, 0), (-1, -1), 0.6, BORDER),
-        ("LINEABOVE", (0, 0), (-1, 0), 3, ORANGE),
-        ("LEFTPADDING", (0, 0), (-1, -1), 7),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-
-    firewall_attempts = sum(row["attempts"] for row in summary["firewall_rows"])
-    blocked_text = [
-        Paragraph(num(blocked_ips), ParagraphStyle(
-            "Blocked", fontName="Helvetica-Bold", fontSize=32, textColor=RED, alignment=TA_LEFT
-        )),
-        Paragraph("IPs ATACANTES BLOQUEADAS", ParagraphStyle(
-            "BlockedLabel", fontName="Helvetica-Bold", fontSize=7, textColor=TEXT
-        )),
-        Spacer(1, 2 * mm),
-        Paragraph(
-            f"{num(firewall_attempts)} intentos asociados<br/>Active Response · firewall-drop",
-            styles["small"],
-        ),
-    ]
-    blocked_box = Table([[blocked_text]], colWidths=[88 * mm], rowHeights=[73 * mm])
-    blocked_box.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fff6f4")),
-        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#efd8d4")),
-        ("LINEABOVE", (0, 0), (-1, 0), 3, RED),
-        ("LEFTPADDING", (0, 0), (-1, -1), 9),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 9),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-    ]))
-
-    main_row = Table([[category_box, blocked_box]], colWidths=[176 * mm, 91 * mm])
-    main_row.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
-        ("TOPPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-    ]))
-    story.extend([main_row, Spacer(1, 4 * mm)])
-
-    # Temporal evolution.
-    story.append(Table([[
-        [Paragraph("Evolución de eventos", styles["section"]),
-         timeline_chart(summary.get("timeline", {}))]
-    ]], colWidths=[267 * mm], style=TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), WHITE),
-        ("BOX", (0, 0), (-1, -1), 0.6, BORDER),
-        ("LINEABOVE", (0, 0), (-1, 0), 3, ORANGE),
-        ("LEFTPADDING", (0, 0), (-1, -1), 7),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-    ])))
-
-    story.append(PageBreak())
-
-    # Page 2: compact rankings and operational details.
-    story.extend([
-        Paragraph("Actividad destacada", ParagraphStyle(
-            "P2", fontName="Helvetica-Bold", fontSize=18, textColor=TEXT
-        )),
-        Paragraph(
-            "Top de sistemas, reglas y técnicas MITRE del mismo período y grupo.",
-            styles["small"],
-        ),
-        Spacer(1, 4 * mm),
-    ])
-
-    categories = summary["categories"]
-    rule_counter = {}
-    from collections import Counter
-    rc = Counter()
-    for info in categories.values():
-        rc.update(info.get("rules") or {})
-    rules = []
-    for key, count in rc.most_common(5):
-        if isinstance(key, tuple):
-            rules.append((f"{key[0]} · {key[1]}", count))
-        else:
-            rules.append((str(key), count))
-
-    systems = []
-    for key, count in summary["agents"].most_common(5):
-        systems.append((key[1] if isinstance(key, tuple) else str(key), count))
-
-    mitre = [
-        (f"{mid} · {name}", count)
-        for mid, name, _meaning, count in report.mitre_rows(summary)[:5]
-    ]
-
-    rankings = Table([[
-        ranking_table("Top 5 sistemas", systems, ORANGE),
-        ranking_table("Top 5 reglas", rules, ORANGE_DARK),
-        ranking_table("Top 5 MITRE ATT&CK", mitre, RED),
-    ]], colWidths=[91 * mm] * 3)
-    rankings.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 2),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
-    ]))
-    story.extend([rankings, Spacer(1, 5 * mm)])
-
-    # Firewall detail: actual 651 executions, not just trigger rules.
-    # First show one row per origin rule with the total impact.
-    fw_rows = []
-    for row in summary["firewall_rows"]:
-        fw_rows.append([
-            row["agent_name"],
-            row["rule_id"],
-            row["description"],
-            num(row["attempts"]),
-            num(len(row["ips"])),
-        ])
-    if fw_rows:
-        story.extend(detail_table(
-            "Bloqueos automáticos registrados por Wazuh",
-            fw_rows,
-            ["Sistema", "Regla origen", "Motivo", "Intentos", "IPs bloqueadas"],
-        ))
-
-        # Then show EVERY blocked IP. This is intentionally separate
-        # from the grouped rule summary so the dashboard does not
-        # truncate the list to the first N addresses.
-        ip_rows = []
-        for row in summary["firewall_rows"]:
-            for srcip in row["ips"]:
-                ip_rows.append([
-                    row["agent_name"],
-                    row["rule_id"],
-                    srcip,
-                ])
-
-        if ip_rows:
-            story.extend([
-                Spacer(1, 4 * mm),
-                *detail_table(
-                    "Detalle completo de IPs bloqueadas",
-                    ip_rows,
-                    ["Sistema", "Regla origen", "IP bloqueada"],
-                ),
-            ])
-    else:
-        story.append(Table(
-            [[Paragraph(
-                "No se encontraron ejecuciones firewall-drop registradas como regla 651 en el período.",
-                styles["body"],
-            )]],
-            colWidths=[267 * mm],
-            style=TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fff6f4")),
-                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#efd8d4")),
-                ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                ("TOPPADDING", (0, 0), (-1, -1), 8),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-            ]),
-        ))
-
-    story.append(Spacer(1, 5 * mm))
-
-    # Category detail, kept compact for operational use.
-    cat_rows = []
-    for key, info in sorted(categories.items(), key=lambda item: item[1]["count"], reverse=True):
-        cat_rows.append([
-            key.replace("_", " ").title(),
-            num(info["count"]),
-            num(len(info["ips"])),
-            num(len(info["agents"])),
-        ])
-    story.extend(detail_table(
-        "Resumen por categoría",
-        cat_rows,
-        ["Categoría", "Detecciones", "IPs", "Sistemas"],
-    ))
-
-    story.append(Spacer(1, 4 * mm))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=BORDER))
-    story.append(Spacer(1, 2 * mm))
-    story.append(Paragraph(
-        "Fuente: Wazuh. El dashboard utiliza la misma extracción y clasificación del informe de actividad. "
-        "Las IPs bloqueadas corresponden a ejecuciones de Active Response firewall-drop registradas por Wazuh, "
-        "no simplemente a reglas configuradas para ejecutar un bloqueo.",
-        styles["tiny"],
-    ))
-
-    def footer(canvas, doc):
-        canvas.saveState()
-        canvas.setFillColor(NAVY)
-        canvas.rect(0, 0, landscape(A4)[0], 7 * mm, fill=1, stroke=0)
-        canvas.setFillColor(ORANGE)
-        canvas.rect(0, 7 * mm, landscape(A4)[0], 1.5 * mm, fill=1, stroke=0)
-        canvas.setFillColor(WHITE)
-        canvas.setFont("Helvetica", 6.5)
-        canvas.drawString(12 * mm, 2.5 * mm, "ORANGEBOX IT SERVICES · WAZUH SECURITY DASHBOARD")
-        canvas.drawRightString(landscape(A4)[0] - 12 * mm, 2.5 * mm, f"Página {doc.page}")
-        canvas.restoreState()
-
-    from reportlab.platypus import PageTemplate
-    doc.addPageTemplates([PageTemplate(id="dashboard", frames=[frame], onPage=footer)])
-    doc.build(story)
-
-
-def send_email(subject, pdf_path, recipients, sender=DEFAULT_FROM):
-    for recipient in recipients:
-        msg = MIMEMultipart()
-        msg["Subject"] = subject
-        msg["From"] = f"Wazuh SOC <{sender}>"
-        msg["To"] = recipient
-        msg.attach(MIMEText("Adjunto: OrangeBox Wazuh Security Dashboard en PDF.", "plain", "utf-8"))
-        with open(pdf_path, "rb") as handle:
-            part = MIMEApplication(handle.read(), _subtype="pdf")
-        part.add_header("Content-Disposition", "attachment", filename=os.path.basename(pdf_path))
-        msg.attach(part)
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
-            smtp.sendmail(sender, [recipient], msg.as_string())
-
-
+def report_module():
+ s=spec_from_file_location("orangebox_security_report",REPORT_PATH)
+ if s is None or s.loader is None: raise SystemExit(f"No se pudo cargar {REPORT_PATH}")
+ m=module_from_spec(s); s.loader.exec_module(m); return m
+def n(v): return f"{int(v):,}".replace(",",".")
+def logo():
+ p=Path("/tmp/orangebox-dashboard-logo.png")
+ try:
+  if not p.exists(): urllib.request.urlretrieve(LOGO_URL,p)
+  return p
+ except Exception: return None
+def txt(c,v,x,y,size=8,col=TEXT,font="Helvetica",align="left"):
+ c.setFont(font,size); c.setFillColor(col)
+ {"left":c.drawString,"right":c.drawRightString,"center":c.drawCentredString}[align](x,y,str(v))
+def box(c,x,y,w,h,fill=WHITE,stroke=GRID,r=8,lw=.7):
+ c.setFillColor(fill); c.setStrokeColor(stroke); c.setLineWidth(lw); c.roundRect(x,y,w,h,r,fill=1,stroke=1)
+def header(c,label,group,period,page,W,H):
+ c.setFillColor(NAVY); c.rect(0,H-61,W,61,fill=1,stroke=0)
+ c.setFillColor(ORANGE); c.rect(0,H-64,W,3,fill=1,stroke=0)
+ p=logo()
+ if p:
+  try: c.drawImage(ImageReader(str(p)),25,H-49,width=116,height=32,preserveAspectRatio=True,mask="auto",anchor="sw")
+  except Exception: txt(c,"Orange",25,H-42,18,ORANGE,"Helvetica-Bold")
+ else:
+  txt(c,"Orange",25,H-42,18,ORANGE,"Helvetica-Bold"); txt(c,"Box",83,H-42,18,WHITE,"Helvetica-Bold")
+ txt(c,"SECURITY DASHBOARD",W/2,H-29,23,WHITE,"Helvetica-Bold","center")
+ txt(c,f"WAZUH  ·  {label.upper()}  ·  {group}",W/2,H-46,8,colors.HexColor("#c5d2d7"),align="center")
+ txt(c,f"{period}  |  PÁGINA {page}",W-25,H-43,7,colors.HexColor("#c5d2d7"),align="right")
+def footer(c,W):
+ c.setFillColor(NAVY); c.rect(0,0,W,18,fill=1,stroke=0); c.setFillColor(ORANGE); c.rect(0,18,W,2,fill=1,stroke=0)
+ txt(c,"ORANGEBOX IT SERVICES  ·  WAZUH SECURITY OPERATIONS",25,6,6.5,colors.HexColor("#c5d2d7"))
+ txt(c,"Fuente: Wazuh",W-25,6,6.5,colors.HexColor("#c5d2d7"),align="right")
+def title(c,s,x,y,w,accent=ORANGE,sub=None):
+ txt(c,s,x+12,y,11,TEXT,"Helvetica-Bold"); c.setFillColor(accent); c.roundRect(x,y-7,w,3,1.5,fill=1,stroke=0)
+ if sub: txt(c,sub,x+w,y,7,MUTED,align="right")
+def kpi(c,x,y,w,h,val,label,note,accent):
+ box(c,x,y,w,h,NAVY2,NAVY2,7,0); c.setFillColor(accent); c.roundRect(x,y,w,4,2,fill=1,stroke=0)
+ txt(c,n(val),x+12,y+h-29,24,accent,"Helvetica-Bold"); txt(c,label.upper(),x+12,y+h-44,7.5,WHITE,"Helvetica-Bold"); txt(c,note,x+12,y+10,6.5,colors.HexColor("#c6d4d9"))
+def bars(c,rows,x,y,w,h,accent,max_items=6,labelw=120):
+ rows=rows[:max_items]
+ if not rows: txt(c,"SIN DATOS",x+w/2,y+h/2,9,MUTED,"Helvetica-Bold","center"); return
+ mv=max(float(v) for _,v in rows) or 1; rh=h/len(rows)
+ for i,(lab,val) in enumerate(rows):
+  yy=y+h-(i+1)*rh+rh*.18; txt(c,lab,x,yy+rh*.32,7.2,TEXT,"Helvetica-Bold")
+  bx=x+labelw; bw=w-labelw-48; c.setFillColor(colors.HexColor("#e9eef0")); c.roundRect(bx,yy,bw,9,4.5,fill=1,stroke=0)
+  c.setFillColor(accent); c.roundRect(bx,yy,max(4,bw*float(val)/mv),9,4.5,fill=1,stroke=0); txt(c,n(val),x+w,yy+rh*.32,7.2,TEXT,"Helvetica-Bold","right")
+def catbars(c,cats,x,y,w,h):
+ rows=[(CAT[k],cats.get(k,{}).get("count",0),k) for k in CAT]; rows=[r for r in rows if r[1]]
+ if not rows: txt(c,"SIN ACTIVIDAD",x+w/2,y+h/2,9,MUTED,"Helvetica-Bold","center"); return
+ mv=max(v for _,v,_ in rows) or 1; rh=h/len(rows)
+ for i,(lab,val,key) in enumerate(rows):
+  yy=y+h-(i+1)*rh+rh*.2; txt(c,lab,x,yy+8,7.5,TEXT,"Helvetica-Bold"); bx=x+105; bw=w-150
+  c.setFillColor(colors.HexColor("#e9eef0")); c.roundRect(bx,yy,bw,11,5.5,fill=1,stroke=0); c.setFillColor(CC[key]); c.roundRect(bx,yy,max(6,bw*val/mv),11,5.5,fill=1,stroke=0); txt(c,n(val),x+w,yy+8,7.5,TEXT,"Helvetica-Bold","right")
+def line(c,timeline,x,y,w,h):
+ ds=sorted(timeline)
+ if not ds: txt(c,"SIN EVOLUCIÓN TEMPORAL",x+w/2,y+h/2,9,MUTED,"Helvetica-Bold","center"); return
+ vs=[timeline[d] for d in ds]; mv=max(vs) or 1; L=x+36; B=y+20; CW=w-48; CH=h-35
+ c.setStrokeColor(GRID); c.setLineWidth(.5)
+ for j in range(5):
+  gy=B+CH*j/4; c.line(L,gy,L+CW,gy); txt(c,n(mv*j/4),L-6,gy-2,5.5,MUTED,align="right")
+ pts=[]
+ for i,v in enumerate(vs): pts.append((L if len(vs)==1 else L+CW*i/(len(vs)-1),B+CH*v/mv))
+ p=c.beginPath(); p.moveTo(*pts[0])
+ for q in pts[1:]: p.lineTo(*q)
+ c.setStrokeColor(ORANGE); c.setLineWidth(2.2); c.drawPath(p,stroke=1,fill=0)
+ for px,py in pts: c.setFillColor(ORANGE); c.circle(px,py,2.4,fill=1,stroke=0)
+ step=max(1,len(ds)//9)
+ for i,d in enumerate(ds):
+  if i%step==0 or i==len(ds)-1:
+   px=L if len(ds)==1 else L+CW*i/(len(ds)-1); txt(c,d.strftime("%d/%m"),px,B-12,5.5,MUTED,align="center")
+def donut(c,vals,labs,x,y,r,cols,total_label="TOTAL"):
+ total=sum(vals) or 1; start=90
+ for v,col in zip(vals,cols):
+  sw=360*v/total; c.setFillColor(col); c.wedge(x-r,y-r,x+r,y+r,start-sw,start,fill=1,stroke=0); start-=sw
+ c.setFillColor(WHITE); c.circle(x,y,r*.56,fill=1,stroke=0); txt(c,n(sum(vals)),x,y+2,16,TEXT,"Helvetica-Bold","center"); txt(c,total_label,x,y-11,6.5,MUTED,"Helvetica-Bold","center")
+ ly=y+r-4
+ for lab,v,col in zip(labs,vals,cols):
+  c.setFillColor(col); c.rect(x+r+18,ly,7,7,fill=1,stroke=0); txt(c,lab,x+r+31,ly+1,6.2,TEXT); txt(c,n(v),x+r+118,ly+1,6.2,TEXT,"Helvetica-Bold","right"); ly-=14
+def gauge(c,value,total,x,y,r):
+ pct=max(0,min(1,float(value)/total if total else 0)); c.setLineWidth(13); c.setLineCap(1); c.setStrokeColor(colors.HexColor("#e8edef")); c.arc(x-r,y-r,x+r,y+r,0,180)
+ col=CYAN if pct<.35 else ORANGE if pct<.75 else RED; c.setStrokeColor(col); c.arc(x-r,y-r,x+r,y+r,0,180*pct); c.setLineCap(0)
+ txt(c,"EFICACIA DE BLOQUEO",x,y+15,8,TEXT,"Helvetica-Bold","center"); txt(c,f"{pct*100:.1f}%",x,y-4,22,col,"Helvetica-Bold","center"); txt(c,"bloqueadas / atacantes",x,y-18,6.5,MUTED,align="center")
+ txt(c,"0",x-r+3,y-3,5.5,MUTED); txt(c,"100%",x+r-3,y-3,5.5,MUTED,align="right")
+def page1(c,s,g,l,p,W,H):
+ header(c,l,g,p,1,W,H); y=H-142; gap=9; x=28; kw=(W-56-gap*3)/4
+ kpi(c,x,y,kw,65,s["security_count"],"Eventos","detecciones clasificadas",ORANGE); kpi(c,x+kw+gap,y,kw,65,s["critical_count"],"Alta severidad","nivel Wazuh ≥ 13",RED); kpi(c,x+2*(kw+gap),y,kw,65,len(s["source_ips"]),"IPs atacantes","orígenes observados",ORANGE2); kpi(c,x+3*(kw+gap),y,kw,65,len(s["firewall_ips"]),"IPs bloqueadas","Active Response · firewall-drop",RED)
+ py=H-390; ph=205
+ box(c,28,py,500,ph); title(c,"ACTIVIDAD POR CATEGORÍA",40,py+ph-23,476,ORANGE,"detecciones"); catbars(c,s["categories"],40,py+25,476,ph-55)
+ box(c,540,py,274,ph); title(c,"RESPUESTA AUTOMÁTICA",552,py+ph-23,250,RED,"firewall-drop"); gauge(c,len(s["firewall_ips"]),max(1,len(s["source_ips"])),677,py+111,68); txt(c,f"{n(len(s['firewall_ips']))} bloqueadas de {n(len(s['source_ips']))} IPs observadas",677,py+37,7,MUTED,align="center")
+ ty=54; th=155; box(c,28,ty,786,th); title(c,"EVOLUCIÓN DIARIA",40,ty+th-23,762,ORANGE,"detecciones clasificadas"); line(c,s.get("timeline",{}),40,ty+18,762,th-48); footer(c,W); c.showPage()
+def page2(c,s,g,l,p,W,H,report):
+ header(c,l,g,p,2,W,H); y=H-300; h=178; gap=12; w=(W-56-gap*2)/3
+ rc=Counter()
+ for info in s["categories"].values(): rc.update(info.get("rules") or {})
+ rules=[(f"{k[0]} · {k[1]}" if isinstance(k,tuple) else str(k),v) for k,v in rc.most_common(7)]
+ systems=[(k[1] if isinstance(k,tuple) else str(k),v) for k,v in s["agents"].most_common(7)]
+ mitre=[(f"{mid} · {name}",v) for mid,name,_meaning,v in report.mitre_rows(s)[:7]]
+ for i,(head,rows,accent) in enumerate((("TOP SISTEMAS",systems,ORANGE),("TOP REGLAS",rules,RED),("MITRE ATT&CK",mitre,PURPLE))):
+  xx=28+i*(w+gap); box(c,xx,y,w,h); title(c,head,xx+12,y+h-23,w-24,accent,"por volumen" if i<2 else "técnicas observadas"); bars(c,rows,xx+12,y+20,w-35,h-57,accent,7,120)
+ ly=54; lh=210; box(c,28,ly,500,lh); title(c,"ACTIVE RESPONSE · BLOQUEOS",40,ly+lh-23,476,RED,"ejecuciones reales de firewall-drop")
+ fw=Counter()
+ for row in s["firewall_rows"]: fw[row["agent_name"]]+=len(row["ips"])
+ bars(c,fw.most_common(),40,ly+25,476,lh-62,RED,8,120)
+ box(c,540,ly,274,lh); title(c,"DISTRIBUCIÓN",552,ly+lh-23,250,CYAN,"detecciones")
+ labs=[]; vals=[]; cols=[]
+ for k in CAT:
+  v=s["categories"].get(k,{}).get("count",0)
+  if v: labs.append(CAT[k]); vals.append(v); cols.append(CC[k])
+ donut(c,vals,labs,612,ly+100,54,cols)
+ txt(c,"FUENTES BLOQUEADAS",650,ly+55,7,MUTED,"Helvetica-Bold"); txt(c,n(len(s["firewall_ips"])),650,ly+37,18,RED,"Helvetica-Bold"); txt(c,"registros de ejecución",650,ly+22,6.5,MUTED)
+ footer(c,W); c.showPage()
+def build(path,s,g,start,end,label,report):
+ W,H=landscape(A4); c=canvas.Canvas(str(path),pagesize=(W,H)); c.setTitle(f"OrangeBox Security Dashboard - {g}"); c.setAuthor("OrangeBox IT Services")
+ now=datetime.now().astimezone(); ec=end if end.tzinfo else end.replace(tzinfo=now.tzinfo); p=f"{start:%d/%m/%Y %H:%M} — {end:%d/%m/%Y %H:%M}" if ec<=now else f"{start:%d/%m/%Y %H:%M} — ahora"
+ page1(c,s,g,label,p,W,H); page2(c,s,g,label,p,W,H,report); c.save()
+def send_pdf(path,subject,to):
+ msg=MIMEMultipart(); msg["Subject"]=subject; msg["From"]=f"Wazuh SOC <{DEFAULT_FROM}>"; msg["To"]=to; msg.attach(MIMEText("Adjunto: OrangeBox Wazuh Security Dashboard.","plain","utf-8"))
+ with open(path,"rb") as f: part=MIMEApplication(f.read(),_subtype="pdf")
+ part.add_header("Content-Disposition","attachment",filename=os.path.basename(path)); msg.attach(part)
+ with smtplib.SMTP(SMTP_HOST,SMTP_PORT,timeout=30) as smtp: smtp.sendmail(DEFAULT_FROM,[to],msg.as_string())
 def main():
-    parser = argparse.ArgumentParser(description="OrangeBox Wazuh Security Dashboard PDF")
-    modes = parser.add_mutually_exclusive_group(required=True)
-    for name in ("today", "yesterday", "thisweek", "lastweek", "thismonth", "lastmonth", "thisyear", "lastyear"):
-        modes.add_argument("--" + name, action="store_true")
-    modes.add_argument("--date", metavar="YYYY-MM-DD")
-    parser.add_argument("--group", required=True, help="Grupo Wazuh o all")
-    parser.add_argument("--output", help="PDF de salida")
-    parser.add_argument("--email", action="append", help="Destinatario; puede repetirse o usar comas")
-    args = parser.parse_args()
-
-    recipients = []
-    for value in args.email or []:
-        recipients.extend(item.strip() for item in value.split(",") if item.strip())
-    for recipient in recipients:
-        if not re.fullmatch(r"[^\s@]+@[^\s@]+", recipient):
-            raise SystemExit(f"Dirección de correo inválida: {recipient}")
-
-    mode = args.date and f"date:{args.date}" or next(
-        name for name in (
-            "today", "yesterday", "thisweek", "lastweek",
-            "thismonth", "lastmonth", "thisyear", "lastyear",
-        ) if getattr(args, name)
-    )
-
-    report = load_report_module()
-    now = datetime.now().astimezone()
-    start, end, label = report.period_bounds(mode, now)
-    allowed = report.group_members(args.group)
-    summary = report.load_events(start, end, allowed)
-
-    safe_group = "".join(c if c.isalnum() or c in "._-" else "_" for c in args.group)
-    output = Path(args.output) if args.output else Path("/tmp") / f"security-dashboard-{safe_group}-{start:%Y%m%d}.pdf"
-    output.parent.mkdir(parents=True, exist_ok=True)
-
-    build_pdf(output, summary, args.group, start, end, label, report)
-
-    if recipients:
-        subject_prefix = {
-            "today": "Dashboard Diario de Seguridad",
-            "yesterday": "Dashboard Diario de Seguridad",
-            "thisweek": "Dashboard Semanal de Seguridad",
-            "lastweek": "Dashboard Semanal de Seguridad",
-            "thismonth": "Dashboard Mensual de Seguridad",
-            "lastmonth": "Dashboard Mensual de Seguridad",
-            "thisyear": "Dashboard Anual de Seguridad",
-            "lastyear": "Dashboard Anual de Seguridad",
-        }
-        subject = f"[ORANGEBOX] {subject_prefix.get(mode, 'Dashboard de Seguridad')} — {args.group}"
-        send_email(subject, output, recipients)
-
-    print(f"Dashboard PDF generado: {output}")
-    print(f"IPs bloqueadas: {len(summary['firewall_ips'])}")
-    print(f"Eventos de seguridad: {summary['security_count']}")
-    if recipients:
-        print(f"Enviado a: {', '.join(recipients)}")
-
-
-if __name__ == "__main__":
-    main()
+ ap=argparse.ArgumentParser(description="OrangeBox Wazuh Security Dashboard PDF"); modes=ap.add_mutually_exclusive_group(required=True)
+ for x in ("today","yesterday","thisweek","lastweek","thismonth","lastmonth","thisyear","lastyear"): modes.add_argument("--"+x,action="store_true")
+ modes.add_argument("--date"); ap.add_argument("--group",required=True); ap.add_argument("--output",default="/tmp/orangebox-security-dashboard.pdf"); ap.add_argument("--email",action="append")
+ a=ap.parse_args(); r=report_module(); mode=a.date and f"date:{a.date}" or next(x for x in ("today","yesterday","thisweek","lastweek","thismonth","lastmonth","thisyear","lastyear") if getattr(a,x))
+ now=datetime.now().astimezone(); start,end,label=r.period_bounds(mode,now); allowed=r.group_members(a.group); s=r.load_events(start,end,allowed); out=Path(a.output); out.parent.mkdir(parents=True,exist_ok=True); build(out,s,a.group,start,end,label,r)
+ if a.email:
+  for value in a.email:
+   for to in [z.strip() for z in value.split(",") if z.strip()]:
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+",to): raise SystemExit(f"Dirección de correo inválida: {to}")
+    send_pdf(out,f"📊 [ORANGEBOX] Dashboard de Seguridad — {a.group}",to)
+ print(f"Grupo: {a.group}"); print(f"Periodo: {start:%d/%m/%Y %H:%M} — {end:%d/%m/%Y %H:%M}"); print(f"Eventos: {s['security_count']}"); print(f"IPs atacantes: {len(s['source_ips'])}"); print(f"IPs bloqueadas: {len(s['firewall_ips'])}"); print(f"Archivo: {out}")
+if __name__=="__main__": main()
