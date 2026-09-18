@@ -67,6 +67,27 @@ IMMEDIATE_GROUPS = {
 
 
 # ============================================================
+# REGLAS CON FIREWALL-DROP
+# ============================================================
+#
+# Estas reglas siguen generando la alerta Wazuh y ejecutando
+# Active Response normalmente.
+#
+# Solamente se evita el correo individual de la integracion.
+# El reporte/dashboard PDF las recoge desde alerts.json y,
+# para confirmar el bloqueo real, desde la regla 651.
+#
+FIREWALL_DROP_RULES = {
+    "5720",   # SSH brute force
+    "10006",  # SSH brute force seguido de login exitoso
+    "10025",  # Web brute force
+    "10026",  # Descubrimiento de archivos sensibles
+    "10453",  # Escaneo de puertos TCP
+    "10454",  # SYN flood desde una IP
+}
+
+
+# ============================================================
 # FUNCIONES AUXILIARES
 # ============================================================
 
@@ -476,8 +497,30 @@ groups = ", ".join(
 
 
 # ============================================================
-# DATOS FIM / SYSCHECK
+# SUPRESION DE CORREO PARA FIREWALL-DROP
 # ============================================================
+#
+# La alerta permanece completamente en Wazuh y Active Response
+# no se modifica. Solamente evitamos enviar el correo individual
+# porque el dashboard PDF consolida:
+#
+#   - regla que disparo el bloqueo
+#   - IPs atacantes
+#   - ejecuciones reales de firewall-drop (regla 651)
+#   - sistemas afectados
+#   - volumen de intentos
+#
+# La regla 651 que Wazuh genera al ejecutar firewall-drop tiene
+# nivel bajo y no cruza nuestro umbral de integracion, por lo
+# que tampoco genera un correo individual.
+#
+if rule_id in FIREWALL_DROP_RULES:
+    sys.exit(0)
+
+
+# ============================================================
+# DATOS FIM / SYSCHECK
+# ============================================================""
 
 # IMPORTANTE:
 #
