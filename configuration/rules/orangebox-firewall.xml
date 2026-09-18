@@ -141,7 +141,7 @@
         distribuida no identifica una unica IP que represente al
         conjunto completo del trafico.
     -->
-    <rule id="10455" level="12" frequency="80" timeframe="10">
+    <rule id="10455" level="12" frequency="200" timeframe="10">
         <if_matched_sid>10450</if_matched_sid>
         <different_srcip />
         <same_dstport />
