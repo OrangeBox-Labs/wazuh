@@ -86,7 +86,7 @@ def short_label(value,limit=30):
  value=str(value or "")
  return value if len(value)<=limit else value[:limit-1]+"…"
 
-def catbars(def catbars(c,cats,x,y,w,h):
+def catbars(c,cats,x,y,w,h):
  rows=[(CAT[k],cats.get(k,{}).get("count",0),k) for k in CAT]; rows=[r for r in rows if r[1]]
  if not rows: txt(c,"SIN ACTIVIDAD",x+w/2,y+h/2,9,MUTED,"Helvetica-Bold","center"); return
  mv=max(v for _,v,_ in rows) or 1; rh=h/len(rows)
