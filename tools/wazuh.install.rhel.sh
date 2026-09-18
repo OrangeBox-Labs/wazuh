@@ -361,16 +361,191 @@ install_agent() {
     echo "==> $info"
     curl -fL -o "/tmp/$rpm_file" "$url" || fail "Falló la descarga."
 
-    if agent_usable; then
-    ok "Wazuh Agent ya instalado y filesystem /var/ossec correcto: $(agent_version)"
-else
     if agent_installed; then
-        warn "Wazuh Agent está instalado pero /var/ossec no es utilizable o client.keys no existe; se reparará."
+        echo "==> Reparando/reinstalando wazuh-agent en el filesystem dedicado..."
+        WAZUH_MANAGER="$MANAGER" WAZUH_REGISTRATION_SERVER="$MANAGER" \
+        WAZUH_REGISTRATION_PASSWORD="$PASSWORD" WAZUH_AGENT_NAME="$AGENT_NAME" \
+        WAZUH_AGENT_GROUP="$GROUP" rpm -Uvh --replacepkgs "/tmp/$rpm_file" \
+        || fail "Falló la reinstalación de wazuh-agent."
+    elif has yum; then
+        WAZUH_MANAGER="$MANAGER" WAZUH_REGISTRATION_SERVER="$MANAGER" \
+        WAZUH_REGISTRATION_PASSWORD="$PASSWORD" WAZUH_AGENT_NAME="$AGENT_NAME" \
+        WAZUH_AGENT_GROUP="$GROUP" yum localinstall -y "/tmp/$rpm_file" \
+        || fail "Falló yum."
+    elif has dnf; then
+        WAZUH_MANAGER="$MANAGER" WAZUH_REGISTRATION_SERVER="$MANAGER" \
+        WAZUH_REGISTRATION_PASSWORD="$PASSWORD" WAZUH_AGENT_NAME="$AGENT_NAME" \
+        WAZUH_AGENT_GROUP="$GROUP" dnf install -y "/tmp/$rpm_file" \
+        || fail "Falló dnf."
     else
-        warn "Wazuh Agent no está instalado."
+        fail "No existe yum ni dnf."
     fi
-    install_agent
-fi
+
+    rm -f "/tmp/$rpm_file"
+    agent_installed || fail "Wazuh Agent no quedó instalado."
+    [ -s /var/ossec/etc/client.keys ] || fail "No se generó client.keys."
+    ok "Wazuh Agent instalado/reparado: $(agent_version)"
+}
+
+restart_agent() {
+    if has systemctl; then
+        systemctl enable wazuh-agent >/dev/null 2>&1 || true
+        systemctl restart wazuh-agent || fail "No se pudo reiniciar wazuh-agent."
+        systemctl is-active --quiet wazuh-agent || fail "wazuh-agent no está activo."
+    else
+        chkconfig wazuh-agent on >/dev/null 2>&1 || true
+        service wazuh-agent restart || fail "No se pudo reiniciar wazuh-agent."
+        service wazuh-agent status >/dev/null 2>&1 || fail "No se pudo validar wazuh-agent."
+    fi
+    ok "wazuh-agent activo."
+}
+
+# ---------------------------------------------------------------------------
+# 2. Firewall: Shorewall > firewalld > iptables
+# ---------------------------------------------------------------------------
+
+shorewall_installed() {
+    has shorewall || (has rpm && rpm -q shorewall >/dev/null 2>&1)
+}
+
+configure_shorewall() {
+    has shorewall || fail "Shorewall está instalado pero el comando shorewall no existe."
+    [ -f /etc/shorewall/rules ] || fail "Shorewall está instalado pero no existe /etc/shorewall/rules."
+
+    # La regla se identifica por el tag ORANGEBOX-FW. No se agrega una segunda
+    # regla aunque ya exista una variante equivalente en el archivo.
+    local shorewall_changed=0
+
+    if grep -Fq 'ORANGEBOX-FW' /etc/shorewall/rules; then
+        ok "Regla ORANGEBOX-FW ya existe en Shorewall; no se modifica."
+    else
+        cp -p /etc/shorewall/rules \
+            "/etc/shorewall/rules.orangebox-backup.$(date +%Y%m%d%H%M%S)" \
+            || fail "No se pudo respaldar /etc/shorewall/rules."
+
+        cat >> /etc/shorewall/rules <<'EOF'
+
+# OrangeBox - Wazuh firewall logging
+# SOURCE: todos los orígenes externos hacia el firewall.
+# RATE: 20 conexiones/segundo, burst 40.
+LOG:info:ORANGEBOX-FW    all-    $FW    tcp    -    -    -    20/sec:40
+EOF
+
+        shorewall check >/dev/null 2>&1 \
+            || fail "Shorewall rechazó la configuración ORANGEBOX-FW."
+
+        ok "Regla ORANGEBOX-FW agregada y validada en Shorewall."
+    fi
+
+    shorewall check >/dev/null 2>&1 \
+        || fail "Shorewall rechazó la configuración existente."
+
+    # La configuración queda persistente en /etc/shorewall/rules.
+    # En EL6 Shorewall puede estar gestionado por init.d y el comando
+    # Solo reiniciamos Shorewall si acabamos de modificar la configuración.
+    # Si ORANGEBOX-FW ya existía, no se toca el firewall.
+    if [ "$shorewall_changed" -eq 1 ]; then
+        if has service && service shorewall status >/dev/null 2>&1; then
+            if shorewall restart >/dev/null 2>&1; then
+                ok "Shorewall reiniciado con la configuración OrangeBox."
+            else
+                fail "Se agregó la regla OrangeBox, pero no se pudo reiniciar Shorewall."
+            fi
+        elif has systemctl && systemctl is-active --quiet shorewall 2>/dev/null; then
+            if shorewall restart >/dev/null 2>&1; then
+                ok "Shorewall reiniciado con la configuración OrangeBox."
+            else
+                fail "Se agregó la regla OrangeBox, pero no se pudo reiniciar Shorewall."
+            fi
+        else
+            warn "Se agregó la regla OrangeBox, pero Shorewall no está activo; la configuración quedó persistente y será aplicada al iniciar Shorewall."
+        fi
+    fi
+}
+
+# iptables -C no es suficientemente portable para todas las versiones antiguas
+# soportadas (especialmente EL6). La detección se hace sobre iptables -L.
+iptables_input_rule_exists() {
+    iptables -L INPUT -n --line-numbers 2>/dev/null |
+        grep -E '[[:space:]]ORANGEBOX-FW([[:space:]]|$)' >/dev/null 2>&1
+}
+
+iptables_chain_exists() {
+    iptables -L ORANGEBOX-FW -n >/dev/null 2>&1
+}
+
+iptables_log_rule_exists() {
+    iptables -L ORANGEBOX-FW -n 2>/dev/null |
+        grep -F 'LOG' |
+        grep -F 'ORANGEBOX-FW' >/dev/null 2>&1
+}
+
+iptables_return_rule_exists() {
+    iptables -L ORANGEBOX-FW -n 2>/dev/null |
+        grep -E '[[:space:]]RETURN([[:space:]]|$)' >/dev/null 2>&1
+}
+
+iptables_config_ok() {
+    iptables_input_rule_exists && \
+    iptables_log_rule_exists && \
+    iptables_return_rule_exists
+}
+
+configure_iptables() {
+    has iptables || fail "iptables no está instalado."
+
+    if iptables_chain_exists; then
+        ok "Cadena ORANGEBOX-FW ya existe; no se crea otra."
+    else
+        echo "==> Creando cadena ORANGEBOX-FW..."
+        iptables -N ORANGEBOX-FW || fail "No se pudo crear ORANGEBOX-FW."
+    fi
+
+    # Si ya existe cualquier regla LOG asociada a ORANGEBOX-FW, no se agrega otra.
+    if iptables_log_rule_exists; then
+        ok "Regla LOG ORANGEBOX-FW ya existe; no se agrega otra."
+    else
+        echo "==> Agregando LOG a ORANGEBOX-FW..."
+        iptables -A ORANGEBOX-FW \
+            -m limit --limit 20/second --limit-burst 40 \
+            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4 \
+            || fail "No se pudo agregar LOG a ORANGEBOX-FW."
+    fi
+
+    if iptables_return_rule_exists; then
+        ok "RETURN de ORANGEBOX-FW ya existe; no se agrega otro."
+    else
+        echo "==> Agregando RETURN a ORANGEBOX-FW..."
+        iptables -A ORANGEBOX-FW -j RETURN \
+            || fail "No se pudo agregar RETURN a ORANGEBOX-FW."
+    fi
+
+    if iptables_input_rule_exists; then
+        ok "Regla INPUT -> ORANGEBOX-FW ya existe; no se agrega otra."
+    else
+        echo "==> Conectando INPUT con ORANGEBOX-FW..."
+        iptables -I INPUT 1 \
+            -p tcp --tcp-flags SYN SYN \
+            ! -s 127.0.0.0/8 \
+            -j ORANGEBOX-FW \
+            || fail "No se pudo conectar INPUT con ORANGEBOX-FW."
+    fi
+
+    iptables_config_ok || fail "La configuración ORANGEBOX-FW no quedó completa o correcta."
+
+    if [ -f /etc/sysconfig/iptables ]; then
+        if has service && service iptables save >/dev/null 2>&1; then
+            ok "Configuración iptables persistida."
+        else
+            iptables-save > /etc/sysconfig/iptables \
+                || warn "No se pudo persistir la configuración iptables."
+        fi
+    else
+        warn "No existe /etc/sysconfig/iptables; no se fuerza persistencia."
+    fi
+
+    ok "Configuración ORANGEBOX-FW de iptables validada."
+}
 
 configure_firewalld() {
     has firewall-cmd || fail "firewalld está activo pero firewall-cmd no existe."
@@ -583,10 +758,14 @@ echo "============================================================"
 
 detect_platform
 
-if agent_installed; then
-    ok "Wazuh Agent ya instalado: $(agent_version)"
+if agent_usable; then
+    ok "Wazuh Agent ya instalado y filesystem /var/ossec correcto: $(agent_version)"
 else
-    warn "Wazuh Agent no está instalado."
+    if agent_installed; then
+        warn "Wazuh Agent está instalado pero /var/ossec no es utilizable o client.keys no existe; se reparará."
+    else
+        warn "Wazuh Agent no está instalado."
+    fi
     install_agent
 fi
 
