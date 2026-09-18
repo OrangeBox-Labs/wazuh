@@ -167,27 +167,44 @@ def parse_event(outer):
         command=data.get("command")
         params=data.get("parameters") or {}
 
-        # Wazuh 4.x normally exposes Active Response as structured JSON.
-        # Keep a raw full_log fallback for archived/legacy alert formats so
-        # historical firewall-drop executions are not lost from reports.
-        if command not in {"add","delete"}:
-            payload=extract_firewall_payload(outer.get("full_log",""))
-            if isinstance(payload,dict):
-                command=payload.get("command")
-                params=payload.get("parameters") or {}
-                if not params and payload.get("program"):
-                    params={"program":payload.get("program")}
-                if payload.get("alert"):
-                    params["alert"]=payload.get("alert")
+        # En Wazuh 4.x, el evento 651 mezcla dos representaciones:
+        # command/parameters vienen estructurados en data, mientras que
+        # "program" y el payload completo de firewall-drop pueden permanecer
+        # únicamente dentro de full_log. Por eso no debemos exigir program
+        # dentro de data.parameters.
+        payload=extract_firewall_payload(outer.get("full_log",""))
+        if isinstance(payload,dict):
             if command not in {"add","delete"}:
-                return None
+                command=payload.get("command")
+            raw_params=payload.get("parameters") or {}
+            if raw_params:
+                merged_params=dict(raw_params)
+                merged_params.update(params)
+                params=merged_params
+            elif payload.get("program") and "program" not in params:
+                params=dict(params)
+                params["program"]=payload.get("program")
 
-        if params.get("program") not in {
+        if command not in {"add","delete"}:
+            return None
+
+        program=params.get("program")
+        if program not in {
             "active-response/bin/firewall-drop",
             "/var/ossec/active-response/bin/firewall-drop",
         }:
-            return None
+            # El programa puede estar sólo dentro del JSON anidado de
+            # full_log; usarlo como última comprobación.
+            program=isinstance(payload,dict) and payload.get("program")
+            if program not in {
+                "active-response/bin/firewall-drop",
+                "/var/ossec/active-response/bin/firewall-drop",
+            }:
+                return None
+
         alert=params.get("alert") or {}
+        if not alert and isinstance(payload,dict):
+            alert=(payload.get("parameters") or {}).get("alert") or {}
         alert_rule=alert.get("rule") or {}
         agent=alert.get("agent") or {}
         alert_data=alert.get("data") or {}
