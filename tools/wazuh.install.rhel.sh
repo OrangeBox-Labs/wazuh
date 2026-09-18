@@ -407,9 +407,9 @@ else
     install_agent
 fi
 
-restart_agent
 configure_firewall
 configure_logging
+restart_agent
 
 agent_installed || fail "Verificación final: Wazuh Agent ausente."
 [ -s /var/ossec/etc/client.keys ] || fail "Verificación final: client.keys ausente."
