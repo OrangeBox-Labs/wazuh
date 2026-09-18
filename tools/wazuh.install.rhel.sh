@@ -385,8 +385,7 @@ install_agent() {
 
 restart_agent() {
     if has systemctl; then
-        systemctl enable wazuh-agent >/dev/null 2>&1 || true
-        systemctl restart wazuh-agent || fail "No se pudo reiniciar wazuh-agent."
+        systemctl enable --now wazuh-agent || fail "No se pudo habilitar/iniciar wazuh-agent."
         systemctl is-active --quiet wazuh-agent || fail "wazuh-agent no está activo."
     else
         chkconfig wazuh-agent on >/dev/null 2>&1 || true
@@ -462,8 +461,8 @@ EOF
 # iptables -C no es suficientemente portable para todas las versiones antiguas
 # soportadas (especialmente EL6). La detección se hace sobre iptables -L.
 iptables_input_rule_exists() {
-    iptables -L INPUT -n --line-numbers 2>/dev/null |
-        grep -E '[[:space:]]ORANGEBOX-FW([[:space:]]|$)' >/dev/null 2>&1
+    iptables -L INPUT -n 2>/dev/null |
+        grep -F 'ORANGEBOX-FW' >/dev/null 2>&1
 }
 
 iptables_chain_exists() {
@@ -478,12 +477,15 @@ iptables_log_rule_exists() {
 
 iptables_return_rule_exists() {
     iptables -L ORANGEBOX-FW -n 2>/dev/null |
-        grep -E '[[:space:]]RETURN([[:space:]]|$)' >/dev/null 2>&1
+        grep -F 'RETURN' >/dev/null 2>&1
 }
 
 iptables_config_ok() {
-    iptables_input_rule_exists && \
-    iptables_log_rule_exists && \
+    # EL7/iptables antiguas pueden variar el formato de --line-numbers.
+    # Validamos la cadena y sus reglas por contenido, sin depender de columnas.
+    iptables_chain_exists &&
+    iptables_input_rule_exists &&
+    iptables_log_rule_exists &&
     iptables_return_rule_exists
 }
 
