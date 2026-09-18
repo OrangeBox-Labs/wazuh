@@ -127,7 +127,7 @@
      ================================================================ -->
 <group name="orangebox,authentication,ssh,attack,">
 
-    <rule id="10006" level="11">
+    <rule id="10006" level="13">
         <if_sid>10001</if_sid>
         <if_matched_sid>5763</if_matched_sid>
         <same_source_ip/>
