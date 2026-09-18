@@ -50,7 +50,7 @@ Incluye:
 - `10450`: evento de soporte para un TCP SYN entrante. Usa nivel 1 + `no_log`, por lo que participa en correlaciones sin generar una alerta por cada paquete.
 - `10453`: correlación de 12 SYN en 90 segundos desde la misma IP hacia puertos destino diferentes, utilizada para detectar posible escaneo TCP de puertos.
 - `10454`: correlación de 60 SYN en 10 segundos desde la misma IP hacia el mismo puerto, utilizada para detectar posible SYN flood.
-- `10455`: correlación de 80 IPs origen diferentes en 10 segundos hacia el mismo puerto, utilizada para detectar posible DoS distribuido.
+- `10455`: correlación de 200 IPs origen diferentes en 10 segundos hacia el mismo puerto, utilizada para detectar posible DoS distribuido.
 
 La regla `10453` conserva la lógica de frecuencia de la regla nativa de Wazuh `40601`, pero utiliza `if_matched_sid 10450` y `different_dstport` para hacer la detección más específica.
 
