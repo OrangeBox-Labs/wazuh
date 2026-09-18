@@ -22,7 +22,6 @@ Estas reglas se consideran inmediatas:
 - `5715` - login SSH exitoso nativo.
 - `10001` - login SSH exitoso OrangeBox.
 - `10004` - `su` hacia root.
-- `10007` - ráfaga de fallos SSH desde red interna / posible movimiento lateral.
 - `10008` - sudo exitoso.
 - `10009` - sudo exitoso.
 
