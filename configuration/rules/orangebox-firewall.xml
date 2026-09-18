@@ -137,10 +137,9 @@
         +
         10 segundos
 
-        Activa firewall-drop sobre la IP origen asociada al evento
-        que dispara la correlacion. Esto permite responder al origen
-        que presenta el evento gatillo, aunque no representa por si
-        solo a todo el conjunto distribuido.
+        No activa firewall-drop por si misma porque una deteccion
+        distribuida no identifica una unica IP que represente al
+        conjunto completo del trafico.
     -->
     <rule id="10455" level="12" frequency="80" timeframe="10">
         <if_matched_sid>10450</if_matched_sid>
