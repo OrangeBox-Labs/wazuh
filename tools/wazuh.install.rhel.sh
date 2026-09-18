@@ -166,28 +166,78 @@ restart_agent() {
 }
 
 # ---------------------------------------------------------------------------
-# 2. Firewall: firewalld si está activo, si no iptables
+# 2. Firewall: Shorewall > firewalld > iptables
 # ---------------------------------------------------------------------------
 
+shorewall_installed() {
+    has shorewall || (has rpm && rpm -q shorewall >/dev/null 2>&1)
+}
+
+configure_shorewall() {
+    has shorewall || fail "Shorewall está instalado pero el comando shorewall no existe."
+    [ -f /etc/shorewall/rules ] || fail "Shorewall está instalado pero no existe /etc/shorewall/rules."
+
+    # La regla se identifica por el tag ORANGEBOX-FW. No se agrega una segunda
+    # regla aunque ya exista una variante equivalente en el archivo.
+    if grep -Fq 'ORANGEBOX-FW' /etc/shorewall/rules; then
+        ok "Regla ORANGEBOX-FW ya existe en Shorewall; no se modifica."
+    else
+        cp -p /etc/shorewall/rules \
+            "/etc/shorewall/rules.orangebox-backup.$(date +%Y%m%d%H%M%S)" \
+            || fail "No se pudo respaldar /etc/shorewall/rules."
+
+        cat >> /etc/shorewall/rules <<'EOF'
+
+# OrangeBox - Wazuh firewall logging
+# SOURCE: todos los orígenes externos hacia el firewall.
+# RATE: 20 conexiones/segundo, burst 40.
+LOG:info:ORANGEBOX-FW    all-    $FW    tcp    -    -    -    20/sec:40
+EOF
+
+        shorewall check >/dev/null 2>&1 \
+            || fail "Shorewall rechazó la configuración ORANGEBOX-FW."
+
+        ok "Regla ORANGEBOX-FW agregada y validada en Shorewall."
+    fi
+
+    shorewall check >/dev/null 2>&1 \
+        || fail "Shorewall rechazó la configuración existente."
+
+    # Solo recargamos si Shorewall está actualmente activo. La configuración
+    # queda persistente en /etc/shorewall/rules aunque el servicio esté detenido.
+    if has service && service shorewall status >/dev/null 2>&1; then
+        shorewall reload >/dev/null 2>&1 \
+            || fail "No se pudo recargar Shorewall."
+        ok "Shorewall recargado con la configuración OrangeBox."
+    elif has systemctl && systemctl is-active --quiet shorewall 2>/dev/null; then
+        shorewall reload >/dev/null 2>&1 \
+            || fail "No se pudo recargar Shorewall."
+        ok "Shorewall recargado con la configuración OrangeBox."
+    else
+        warn "Shorewall está instalado pero no activo; la regla quedó persistente y será aplicada al iniciar Shorewall."
+    fi
+}
+
 # iptables -C no es suficientemente portable para todas las versiones antiguas
-# soportadas (especialmente EL6). Validamos sobre la representación de reglas
-# que entrega iptables -L/-S en vez de depender de -C.
+# soportadas (especialmente EL6). La detección se hace sobre iptables -L.
 iptables_input_rule_exists() {
     iptables -L INPUT -n --line-numbers 2>/dev/null |
-        grep -E '[[:space:]]ORANGEBOX-FW[[:space:]]' >/dev/null 2>&1
+        grep -E '[[:space:]]ORANGEBOX-FW([[:space:]]|$)' >/dev/null 2>&1
+}
+
+iptables_chain_exists() {
+    iptables -L ORANGEBOX-FW -n >/dev/null 2>&1
 }
 
 iptables_log_rule_exists() {
     iptables -L ORANGEBOX-FW -n 2>/dev/null |
         grep -F 'LOG' |
-        grep -F 'ORANGEBOX-FW:' |
-        grep -F '20/sec' |
-        grep -F 'burst 40' >/dev/null 2>&1
+        grep -F 'ORANGEBOX-FW' >/dev/null 2>&1
 }
 
 iptables_return_rule_exists() {
     iptables -L ORANGEBOX-FW -n 2>/dev/null |
-        grep -E '[[:space:]]RETURN[[:space:]]' >/dev/null 2>&1
+        grep -E '[[:space:]]RETURN([[:space:]]|$)' >/dev/null 2>&1
 }
 
 iptables_config_ok() {
@@ -199,12 +249,17 @@ iptables_config_ok() {
 configure_iptables() {
     has iptables || fail "iptables no está instalado."
 
-    if ! iptables -L ORANGEBOX-FW -n >/dev/null 2>&1; then
+    if iptables_chain_exists; then
+        ok "Cadena ORANGEBOX-FW ya existe; no se crea otra."
+    else
         echo "==> Creando cadena ORANGEBOX-FW..."
         iptables -N ORANGEBOX-FW || fail "No se pudo crear ORANGEBOX-FW."
     fi
 
-    if ! iptables_log_rule_exists; then
+    # Si ya existe cualquier regla LOG asociada a ORANGEBOX-FW, no se agrega otra.
+    if iptables_log_rule_exists; then
+        ok "Regla LOG ORANGEBOX-FW ya existe; no se agrega otra."
+    else
         echo "==> Agregando LOG a ORANGEBOX-FW..."
         iptables -A ORANGEBOX-FW \
             -m limit --limit 20/second --limit-burst 40 \
@@ -212,13 +267,17 @@ configure_iptables() {
             || fail "No se pudo agregar LOG a ORANGEBOX-FW."
     fi
 
-    if ! iptables_return_rule_exists; then
+    if iptables_return_rule_exists; then
+        ok "RETURN de ORANGEBOX-FW ya existe; no se agrega otro."
+    else
         echo "==> Agregando RETURN a ORANGEBOX-FW..."
         iptables -A ORANGEBOX-FW -j RETURN \
             || fail "No se pudo agregar RETURN a ORANGEBOX-FW."
     fi
 
-    if ! iptables_input_rule_exists; then
+    if iptables_input_rule_exists; then
+        ok "Regla INPUT -> ORANGEBOX-FW ya existe; no se agrega otra."
+    else
         echo "==> Conectando INPUT con ORANGEBOX-FW..."
         iptables -I INPUT 1 \
             -p tcp --tcp-flags SYN SYN \
@@ -262,11 +321,14 @@ configure_firewalld() {
 }
 
 configure_firewall() {
-    if has firewall-cmd && firewall-cmd --state >/dev/null 2>&1; then
+    if shorewall_installed; then
+        ok "Shorewall instalado; usando configuración persistente de Shorewall."
+        configure_shorewall
+    elif has firewall-cmd && firewall-cmd --state >/dev/null 2>&1; then
         ok "firewalld activo."
         configure_firewalld
     else
-        ok "firewalld no activo; usando iptables."
+        ok "Shorewall no instalado y firewalld no activo; usando iptables."
         configure_iptables
     fi
 }
@@ -277,17 +339,21 @@ configure_firewall() {
 
 rsyslog_rule_exists() {
     [ -f /etc/rsyslog.conf ] && \
-    grep -Fq ':msg, contains, "ORANGEBOX-FW:"' /etc/rsyslog.conf && \
-    grep -Fq '/var/log/orangebox-firewall.log' /etc/rsyslog.conf && \
-    grep -Fxq 'stop' /etc/rsyslog.conf
+    grep -Fq ':msg, contains, "ORANGEBOX-FW"' /etc/rsyslog.conf && \
+    grep -Fq '/var/log/orangebox-firewall.log' /etc/rsyslog.conf
 }
 
 configure_rsyslog() {
     has rsyslogd || fail "rsyslogd no está instalado."
 
-    touch "$FIREWALL_LOG"
-    chmod 640 "$FIREWALL_LOG"
-    chown root:root "$FIREWALL_LOG"
+    if [ -f "$FIREWALL_LOG" ]; then
+        chmod 640 "$FIREWALL_LOG"
+        chown root:root "$FIREWALL_LOG"
+    else
+        touch "$FIREWALL_LOG"
+        chmod 640 "$FIREWALL_LOG"
+        chown root:root "$FIREWALL_LOG"
+    fi
 
     if ! rsyslog_rule_exists; then
         local line
@@ -297,7 +363,7 @@ configure_rsyslog() {
         cp -p /etc/rsyslog.conf "/etc/rsyslog.conf.orangebox-backup.$(date +%Y%m%d%H%M%S)" \
             || fail "No se pudo respaldar rsyslog.conf."
 
-        awk -v n="$line" 'NR == n { print ":msg, contains, \"ORANGEBOX-FW:\" -/var/log/orangebox-firewall.log"; print "stop" } { print }' \
+        awk -v n="$line" 'NR == n { print ":msg, contains, \"ORANGEBOX-FW\" -/var/log/orangebox-firewall.log"; print "stop" } { print }' \
             /etc/rsyslog.conf > /etc/rsyslog.conf.orangebox.tmp \
             || fail "No se pudo preparar el filtro de rsyslog."
 
@@ -352,7 +418,10 @@ configure_journald() {
 configure_logrotate() {
     has logrotate || fail "logrotate no está instalado."
 
-    cat > "$LOGROTATE_FILE" <<'EOF'
+    if [ -f "$LOGROTATE_FILE" ]; then
+        ok "Configuración logrotate OrangeBox ya existe; no se modifica."
+    else
+        cat > "$LOGROTATE_FILE" <<'EOF'
 /var/log/orangebox-firewall.log {
     daily
     rotate 0
@@ -361,8 +430,10 @@ configure_logrotate() {
     copytruncate
 }
 EOF
+        chmod 644 "$LOGROTATE_FILE"
+        ok "Configuración logrotate OrangeBox creada."
+    fi
 
-    chmod 644 "$LOGROTATE_FILE"
     logrotate -d "$LOGROTATE_FILE" >/dev/null 2>&1 || fail "logrotate rechazó la configuración."
 
     grep -Fq 'daily' "$LOGROTATE_FILE" || fail "Falta daily."
