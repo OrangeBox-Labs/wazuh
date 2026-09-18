@@ -19,6 +19,7 @@ DEFAULT_AGENT_NAME="$HOSTNAME"
 
 FIREWALL_LOG="/var/log/orangebox-firewall.log"
 LOGROTATE_FILE="/etc/logrotate.d/orangebox-firewall"
+RSYSLOG_FILE="/etc/rsyslog.d/orangebox-firewall.conf"
 EL_MAJOR=""
 LOGGING_BACKEND=""
 
@@ -348,13 +349,39 @@ configure_firewall() {
 # ---------------------------------------------------------------------------
 
 rsyslog_rule_exists() {
-    [ -f /etc/rsyslog.conf ] && \
-    grep -Fq ':msg, contains, "ORANGEBOX-FW"' /etc/rsyslog.conf && \
-    grep -Fq '/var/log/orangebox-firewall.log' /etc/rsyslog.conf
+    [ -f "$RSYSLOG_FILE" ] &&     grep -Fq ':msg, contains, "ORANGEBOX-FW" -/var/log/orangebox-firewall.log' "$RSYSLOG_FILE" &&     grep -Fxq ':msg, contains, "ORANGEBOX-FW" ~' "$RSYSLOG_FILE"
+}
+
+remove_legacy_rsyslog_rule() {
+    [ -f /etc/rsyslog.conf ] || return 0
+
+    if grep -Fq ':msg, contains, "ORANGEBOX-FW" -/var/log/orangebox-firewall.log' /etc/rsyslog.conf; then
+        cp -p /etc/rsyslog.conf             "/etc/rsyslog.conf.orangebox-backup.$(date +%Y%m%d%H%M%S)"             || fail "No se pudo respaldar rsyslog.conf."
+
+        awk '
+            $0 == ":msg, contains, \"ORANGEBOX-FW\" -/var/log/orangebox-firewall.log" {
+                skip_next = 1
+                next
+            }
+            skip_next && ($0 == "stop" || $0 == "~") {
+                skip_next = 0
+                next
+            }
+            {
+                skip_next = 0
+                print
+            }
+        ' /etc/rsyslog.conf > /etc/rsyslog.conf.orangebox.tmp             || fail "No se pudo limpiar la regla OrangeBox antigua de rsyslog.conf."
+
+        mv /etc/rsyslog.conf.orangebox.tmp /etc/rsyslog.conf             || fail "No se pudo actualizar rsyslog.conf."
+
+        ok "Regla OrangeBox antigua removida de rsyslog.conf."
+    fi
 }
 
 configure_rsyslog() {
     has rsyslogd || fail "rsyslogd no está instalado."
+    has logger || fail "logger no está instalado."
 
     if [ -f "$FIREWALL_LOG" ]; then
         chmod 640 "$FIREWALL_LOG"
@@ -367,26 +394,25 @@ configure_rsyslog() {
 
     local rsyslog_changed=0
 
-    if ! rsyslog_rule_exists; then
-        local line
-        line="$(grep -n -E '^\*\.info;mail\.none;authpriv\.none;cron\.none[[:space:]].*/var/log/messages' /etc/rsyslog.conf | head -n1 | cut -d: -f1)"
-        [ -n "$line" ] || fail "No se encontró la regla de /var/log/messages."
-
-        cp -p /etc/rsyslog.conf "/etc/rsyslog.conf.orangebox-backup.$(date +%Y%m%d%H%M%S)" \
-            || fail "No se pudo respaldar rsyslog.conf."
-
-        awk -v n="$line" 'NR == n { print ":msg, contains, \"ORANGEBOX-FW\" -/var/log/orangebox-firewall.log"; print "& ~" } { print }' \
-            /etc/rsyslog.conf > /etc/rsyslog.conf.orangebox.tmp \
-            || fail "No se pudo preparar el filtro de rsyslog."
-
-        mv /etc/rsyslog.conf.orangebox.tmp /etc/rsyslog.conf \
-            || fail "No se pudo actualizar rsyslog.conf."
+    remove_legacy_rsyslog_rule
+    if grep -Fq ':msg, contains, "ORANGEBOX-FW" -/var/log/orangebox-firewall.log' /etc/rsyslog.conf; then
         rsyslog_changed=1
-    else
-        ok "Regla rsyslog ORANGEBOX-FW ya existe; no se modifica."
     fi
 
-    rsyslog_rule_exists || fail "No se pudo validar la regla rsyslog."
+    if rsyslog_rule_exists; then
+        ok "Configuración rsyslog OrangeBox ya existe; no se modifica."
+    else
+        cat > "$RSYSLOG_FILE" <<'EOF'
+# OrangeBox - Wazuh firewall logging
+:msg, contains, "ORANGEBOX-FW" -/var/log/orangebox-firewall.log
+:msg, contains, "ORANGEBOX-FW" ~
+EOF
+        chmod 644 "$RSYSLOG_FILE"
+        rsyslog_changed=1
+        ok "Configuración rsyslog OrangeBox creada en /etc/rsyslog.d/."
+    fi
+
+    rsyslog_rule_exists || fail "No se pudo validar la configuración rsyslog OrangeBox."
     rsyslogd -N1 >/dev/null 2>&1 || fail "rsyslogd rechazó la configuración."
 
     if [ "$rsyslog_changed" -eq 1 ]; then
