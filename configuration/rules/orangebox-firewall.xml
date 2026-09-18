@@ -89,11 +89,11 @@
         pero hace la correlacion desde nuestro SID 10450 y agrega
         diversidad de puerto destino.
 
-        level=12:
-            Permite que la integracion de correo OrangeBox, configurada
-            desde nivel 12, envie esta deteccion inmediatamente.
+        level=11:
+            Se mantiene como alerta relevante, pero queda por debajo del
+            umbral de la integracion de correo OrangeBox.
     -->
-    <rule id="10453" level="12" frequency="12" timeframe="90" ignore="90">
+    <rule id="10453" level="11" frequency="12" timeframe="90" ignore="90">
         <if_matched_sid>10450</if_matched_sid>
         <same_srcip />
         <different_dstport />
@@ -117,7 +117,7 @@
         Es una condicion de volumen sobre un unico servicio y no una
         deteccion de port scan. Usa la misma señal 10450.
     -->
-    <rule id="10454" level="12" frequency="60" timeframe="10" ignore="60">
+    <rule id="10454" level="11" frequency="60" timeframe="10" ignore="60">
         <if_matched_sid>10450</if_matched_sid>
         <same_srcip />
         <same_dstport />
@@ -140,7 +140,7 @@
         No activa bloqueo automatico porque no existe una unica IP origen
         que represente al conjunto del trafico.
     -->
-    <rule id="10455" level="12" frequency="80" timeframe="10">
+    <rule id="10455" level="11" frequency="80" timeframe="10">
         <if_matched_sid>10450</if_matched_sid>
         <different_srcip />
         <same_dstport />
