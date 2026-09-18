@@ -172,14 +172,14 @@ find_ossec_vg() {
             {
                 gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1)
                 gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
-                if (($2 + 0) >= 100) {
+                if (($2 + 0) >= 1024) {
                     print $1
                     exit
                 }
             }')"
 
     [ -n "$vg" ] \
-        || fail "No se encontró un Volume Group con al menos 100 MB libres para /var/ossec."
+        || fail "No se encontró un Volume Group con al menos 1 GiB libres para /var/ossec."
 
     echo "$vg"
 }
@@ -485,16 +485,6 @@ iptables_return_rule_exists() {
         grep -F 'RETURN' >/dev/null 2>&1
 }
 
-    local legacy_dropin="/etc/systemd/system/wazuh-agent.service.d/20-orangebox-firewall.conf"
-    if [ -f "$legacy_dropin" ] &&
-       grep -Fxq 'ExecStartPre=-/var/ossec/bin/orangebox-iptables' "$legacy_dropin" 2>/dev/null; then
-        rm -f "$legacy_dropin" || {
-            step_error "No se pudo retirar el antiguo drop-in OrangeBox de wazuh-agent."
-            return 1
-        }
-        rmdir "$(dirname "$legacy_dropin")" 2>/dev/null || true
-        ok "Antiguo hook ExecStartPre de OrangeBox retirado; ahora lo gestiona orangebox-iptables.service."
-    fi
 configure_wazuh_agent_firewall_service() {
     if ! has systemctl; then
         warn "systemctl no está disponible; no se instalará orangebox-iptables.service."
