@@ -160,14 +160,56 @@ def parse_event(outer):
     rule=outer.get("rule") or {}; rule_id=str(rule.get("id","")); timestamp=parse_timestamp(outer.get("timestamp"))
     if not timestamp: return None
     if rule_id==FIREWALL_RULE:
-        inner=extract_firewall_payload(outer.get("full_log",""))
-        if not inner or inner.get("command") not in {"add","delete"}: return None
-        params=inner.get("parameters") or {}
-        if params.get("program")!="active-response/bin/firewall-drop": return None
-        alert=params.get("alert") or {}; alert_rule=alert.get("rule") or {}; agent=alert.get("agent") or {}; data=alert.get("data") or {}; src=data.get("srcip") or alert.get("srcip"); mitre=alert_rule.get("mitre") or {}
-        return {"timestamp":parse_timestamp(alert.get("timestamp")) or timestamp,"outer_rule":rule_id,"rule_id":str(alert_rule.get("id","unknown")),"description":alert_rule.get("description","Firewall Drop"),"level":int(alert_rule.get("level",0) or 0),"groups":alert_rule.get("groups") or [],"agent_id":str(agent.get("id","000")),"agent_name":agent.get("name","unknown"),"srcip":str(src) if valid_ip(src) else None,"command":inner.get("command"),"alert_id":str(alert.get("id",outer.get("id",""))),"mitre":mitre.get("id",[]),"techniques":mitre.get("technique",[]),"url":data.get("url")}
+        # Wazuh 4.x decodes active-responses.log into data.command +
+        # data.parameters. The previous parser expected the raw JSON payload
+        # in full_log, which made valid firewall-drop executions invisible.
+        data=outer.get("data") or {}
+        command=data.get("command")
+        params=data.get("parameters") or {}
+        if command not in {"add","delete"}: return None
+        if params.get("program") not in {
+            "active-response/bin/firewall-drop",
+            "/var/ossec/active-response/bin/firewall-drop",
+        }: return None
+        alert=params.get("alert") or {}
+        alert_rule=alert.get("rule") or {}
+        agent=alert.get("agent") or {}
+        alert_data=alert.get("data") or {}
+        src=alert_data.get("srcip") or data.get("srcip") or alert.get("srcip")
+        mitre=alert_rule.get("mitre") or {}
+        return {
+            "timestamp":parse_timestamp(alert.get("timestamp")) or timestamp,
+            "outer_rule":rule_id,
+            "rule_id":str(alert_rule.get("id","unknown")),
+            "description":alert_rule.get("description","Firewall Drop"),
+            "level":int(alert_rule.get("level",0) or 0),
+            "groups":alert_rule.get("groups") or [],
+            "agent_id":str(agent.get("id","000")),
+            "agent_name":agent.get("name","unknown"),
+            "srcip":str(src) if valid_ip(src) else None,
+            "command":command,
+            "alert_id":str(alert.get("id",outer.get("id",""))),
+            "mitre":mitre.get("id",[]),
+            "techniques":mitre.get("technique",[]),
+            "url":alert_data.get("url"),
+        }
     agent=outer.get("agent") or {}; data=outer.get("data") or {}; mitre=rule.get("mitre") or {}
-    return {"timestamp":timestamp,"outer_rule":rule_id,"rule_id":rule_id,"description":rule.get("description","Sin descripción"),"level":int(rule.get("level",0) or 0),"groups":rule.get("groups") or [],"agent_id":str(agent.get("id","000")),"agent_name":agent.get("name","unknown"),"srcip":str(data.get("srcip")) if valid_ip(data.get("srcip")) else None,"command":None,"alert_id":str(outer.get("id","")),"mitre":mitre.get("id",[]),"techniques":mitre.get("technique",[]),"url":data.get("url")}
+    return {
+        "timestamp":timestamp,
+        "outer_rule":rule_id,
+        "rule_id":rule_id,
+        "description":rule.get("description","Sin descripción"),
+        "level":int(rule.get("level",0) or 0),
+        "groups":rule.get("groups") or [],
+        "agent_id":str(agent.get("id","000")),
+        "agent_name":agent.get("name","unknown"),
+        "srcip":str(data.get("srcip")) if valid_ip(data.get("srcip")) else None,
+        "command":None,
+        "alert_id":str(outer.get("id","")),
+        "mitre":mitre.get("id",[]),
+        "techniques":mitre.get("technique",[]),
+        "url":data.get("url"),
+    }
 
 def load_events(start,end,allowed):
     files=list(iter_log_files(start,end))
