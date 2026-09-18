@@ -188,19 +188,13 @@ def parse_event(outer):
         if command not in {"add","delete"}:
             return None
 
+        # La propia regla 651 identifica la ejecución de firewall-drop.
+        # En Wazuh 4.x "program" puede venir en full_log o en data.parameters;
+        # no lo usamos como condición de descarte porque la estructura puede
+        # variar entre versiones/decoders.
         program=params.get("program")
-        if program not in {
-            "active-response/bin/firewall-drop",
-            "/var/ossec/active-response/bin/firewall-drop",
-        }:
-            # El programa puede estar sólo dentro del JSON anidado de
-            # full_log; usarlo como última comprobación.
-            program=isinstance(payload,dict) and payload.get("program")
-            if program not in {
-                "active-response/bin/firewall-drop",
-                "/var/ossec/active-response/bin/firewall-drop",
-            }:
-                return None
+        if not program and isinstance(payload,dict):
+            program=payload.get("program")
 
         alert=params.get("alert") or {}
         if not alert and isinstance(payload,dict):
@@ -208,7 +202,14 @@ def parse_event(outer):
         alert_rule=alert.get("rule") or {}
         agent=alert.get("agent") or {}
         alert_data=alert.get("data") or {}
+        # En los eventos 651 de Wazuh 4.x, la IP bloqueada está
+        # normalmente en data.parameters.alert.data.srcip.
         src=alert_data.get("srcip") or data.get("srcip") or alert.get("srcip")
+        if not src and isinstance(payload,dict):
+            payload_params=payload.get("parameters") or {}
+            payload_alert=payload_params.get("alert") or {}
+            payload_alert_data=payload_alert.get("data") or {}
+            src=payload_alert_data.get("srcip") or src
         mitre=alert_rule.get("mitre") or {}
         return {
             "timestamp":parse_timestamp(alert.get("timestamp")) or timestamp,
@@ -318,8 +319,9 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
     page.append(f"<tr><td style='background:{dark};border-bottom:5px solid {orange};padding:16px 20px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr><td valign='middle'><img src='{LOGO_URL}' alt='OrangeBox IT Services' style='display:block;max-width:210px;height:auto;max-height:55px;border:0;'></td><td align='right' valign='middle' style='padding-left:10px;color:#fff;font-size:18px;font-weight:bold;'>Wazuh<div style='font-size:9px;color:#b8c5cb;'>SECURITY MONITORING</div></td></tr></table></td></tr>")
     page.append(f"<tr><td style='padding:24px 22px 14px;'><div style='color:{orange};font-size:11px;font-weight:bold;letter-spacing:1.4px;'>ORANGEBOX SECURITY · WAZUH</div><div style='font-size:26px;font-weight:bold;margin-top:5px;color:{text};'>{esc(title)}</div><div style='font-size:14px;color:{muted};padding-top:5px;'>{esc(subtitle)}</div><div style='margin-top:14px;background:#f4f7f8;border:1px solid #dbe4e8;padding:9px 11px;font-size:13px;color:#526873;'><b>Grupo:</b> {esc(group)} &nbsp; · &nbsp; <b>Período:</b> {esc(period)}</div></td></tr>")
     page.append("<tr><td style='padding:0 14px 18px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='8' border='0'><tr>")
-    metrics=[(security_count,L["security_events"]),(critical_count,L["high_alerts"]),(len(all_ips),L["source_ips"]),(len(agents),L["systems"])]
-    for value,label in metrics: page.append(f"<td width='25%' valign='top' align='center' style='background:#18313b;border-bottom:3px solid {orange};padding:12px 5px;color:#fff;'><div style='color:{orange};font-size:24px;font-weight:bold;'>{value:,}</div><div style='font-size:10px;color:#d3e0e5;text-transform:uppercase;'>{esc(label)}</div></td>")
+    metrics=[(security_count,L["security_events"]),(critical_count,L["high_alerts"]),(len(all_ips),L["source_ips"]),(len(agents),L["systems"]),(len(firewall_ips),L["blocked_ips"])]
+    card_width=f"{100/len(metrics):.2f}%";
+    for value,label in metrics: page.append(f"<td width='{card_width}' valign='top' align='center' style='background:#18313b;border-bottom:3px solid {orange};padding:12px 5px;color:#fff;'><div style='color:{orange};font-size:24px;font-weight:bold;'>{value:,}</div><div style='font-size:10px;color:#d3e0e5;text-transform:uppercase;'>{esc(label)}</div></td>")
     page.append("</tr></table></td></tr>")
     def section_open(icon,heading,sub=None):
         section=f"<tr><td style='padding:0 14px 18px;'><table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0' style='border:1px solid {border};'><tr><td style='background:#f4f7f8;border-left:4px solid {orange};padding:11px 13px;font-size:16px;font-weight:bold;color:{text};'>{icon} {esc(heading)}</td></tr>"
