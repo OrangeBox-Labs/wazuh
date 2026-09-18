@@ -381,8 +381,31 @@ install_agent() {
 
     rm -f "/tmp/$rpm_file"
     agent_installed || fail "Wazuh Agent no quedó instalado."
-    [ -s /var/ossec/etc/client.keys ] || fail "No se generó client.keys."
     ok "Wazuh Agent instalado/reparado: $(agent_version)"
+}
+
+wait_for_client_keys() {
+    local timeout=30
+    local elapsed=0
+
+    echo "==> Esperando enrolamiento del agente y generación de client.keys..."
+
+    while [ "$elapsed" -lt "$timeout" ]; do
+        if [ -s /var/ossec/etc/client.keys ]; then
+            ok "Enrolamiento completado: client.keys generado."
+            return 0
+        fi
+
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+
+    if [ -f /var/ossec/logs/ossec.log ]; then
+        warn "client.keys no apareció dentro de ${timeout}s. Últimos eventos del agente:"
+        tail -n 20 /var/ossec/logs/ossec.log >&2 || true
+    fi
+
+    fail "No se completó el enrolamiento: no se generó /var/ossec/etc/client.keys."
 }
 
 restart_agent() {
@@ -770,6 +793,8 @@ fi
 configure_firewall
 configure_logging
 restart_agent
+
+wait_for_client_keys
 
 agent_usable || fail "Verificación final: Wazuh Agent o filesystem /var/ossec no quedaron correctamente configurados."
 
