@@ -16,6 +16,9 @@ WAZUH_VERSION="4.14.7"
 DEFAULT_MANAGER="wazuh.orangebox.cl"
 DEFAULT_GROUP="OrangeBox"
 DEFAULT_AGENT_NAME="$HOSTNAME"
+WAZUH_OSSEC_SIZE="100M"
+WAZUH_OSSEC_LV="wazuh-ossec"
+WAZUH_OSSEC_VG="${WAZUH_OSSEC_VG:-}"
 
 FIREWALL_LOG="/var/log/orangebox-firewall.log"
 LOGROTATE_FILE="/etc/logrotate.d/orangebox-firewall"
@@ -87,11 +90,239 @@ agent_version() {
     rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' wazuh-agent 2>/dev/null || echo "desconocida"
 }
 
+ossec_mount_options() {
+    awk '$2 == "/var/ossec" { print $4; exit }' /proc/mounts 2>/dev/null
+}
+
+ossec_mount_source() {
+    awk '$2 == "/var/ossec" { print $1; exit }' /proc/mounts 2>/dev/null
+}
+
+ossec_mount_ready() {
+    mountpoint -q /var/ossec 2>/dev/null || return 1
+
+    local opts
+    opts="$(ossec_mount_options)"
+
+    case ",$opts," in
+        *,noexec,*) return 1 ;;
+    esac
+
+    case ",$opts," in
+        *,nosuid,*) ;;
+        *) return 1 ;;
+    esac
+
+    case ",$opts," in
+        *,nodev,*) ;;
+        *) return 1 ;;
+    esac
+
+    return 0
+}
+
+agent_usable() {
+    agent_installed || return 1
+    ossec_mount_ready || return 1
+    [ -s /var/ossec/etc/client.keys ] || return 1
+    [ -x /var/ossec/bin/wazuh-control ] || return 1
+}
+
+ensure_lvm() {
+    if has vgs && has lvs && has lvcreate; then
+        return 0
+    fi
+
+    echo "==> Instalando lvm2..."
+    if has yum; then
+        yum install -y lvm2 >/dev/null 2>&1 \
+            || fail "No se pudo instalar lvm2."
+    elif has dnf; then
+        dnf install -y lvm2 >/dev/null 2>&1 \
+            || fail "No se pudo instalar lvm2."
+    else
+        fail "No existe yum ni dnf para instalar lvm2."
+    fi
+
+    has vgs && has lvs && has lvcreate \
+        || fail "Las herramientas LVM no quedaron disponibles."
+}
+
+find_ossec_vg() {
+    if [ -n "$WAZUH_OSSEC_VG" ]; then
+        vgs "$WAZUH_OSSEC_VG" >/dev/null 2>&1 \
+            || fail "El Volume Group $WAZUH_OSSEC_VG no existe."
+        echo "$WAZUH_OSSEC_VG"
+        return 0
+    fi
+
+    local vg
+    vg="$(vgs --noheadings --units m --nosuffix -o vg_name,vg_free 2>/dev/null |
+        awk '
+            {
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1)
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
+                if (($2 + 0) >= 100) {
+                    print $1
+                    exit
+                }
+            }')"
+
+    [ -n "$vg" ] \
+        || fail "No se encontró un Volume Group con al menos 100 MB libres para /var/ossec."
+
+    echo "$vg"
+}
+
+backup_fstab() {
+    cp -p /etc/fstab "/etc/fstab.orangebox-backup.$(date +%Y%m%d%H%M%S)" \
+        || fail "No se pudo respaldar /etc/fstab."
+}
+
+write_ossec_fstab() {
+    local uuid="$1"
+    local fstype="$2"
+    local existing
+
+    existing="$(grep -E '^[[:space:]]*[^#[:space:]][^[:space:]]*[[:space:]]+/var/ossec[[:space:]]' /etc/fstab 2>/dev/null | head -n1 || true)"
+
+    if [ -n "$existing" ]; then
+        local current_device
+        current_device="$(printf '%s\n' "$existing" | awk '{print $1}')"
+
+        case "$current_device" in
+            "UUID=$uuid")
+                ;;
+            *)
+                fail "/var/ossec ya tiene una entrada distinta en /etc/fstab ($current_device). No se sobrescribe."
+                ;;
+        esac
+
+        backup_fstab
+
+        awk -v uuid="$uuid" -v fstype="$fstype" '
+            $0 ~ /^[[:space:]]*[^#[:space:]][^[:space:]]*[[:space:]]+\/var\/ossec[[:space:]]/ {
+                print "UUID=" uuid " /var/ossec " fstype " defaults,exec,nosuid,nodev 0 0"
+                next
+            }
+            { print }
+        ' /etc/fstab > /etc/fstab.orangebox.tmp \
+            || fail "No se pudo preparar /etc/fstab."
+
+        mv /etc/fstab.orangebox.tmp /etc/fstab \
+            || fail "No se pudo actualizar /etc/fstab."
+    else
+        backup_fstab
+        printf 'UUID=%s /var/ossec %s defaults,exec,nosuid,nodev 0 0\n' \
+            "$uuid" "$fstype" >> /etc/fstab \
+            || fail "No se pudo agregar /var/ossec a /etc/fstab."
+    fi
+}
+
+prepare_ossec_storage() {
+    has mountpoint || fail "mountpoint no está disponible."
+    has mount || fail "mount no está disponible."
+    has blkid || fail "blkid no está disponible."
+    has mkfs.ext4 || fail "mkfs.ext4 no está disponible."
+
+    if mountpoint -q /var/ossec 2>/dev/null; then
+        if ossec_mount_ready; then
+            ok "/var/ossec ya está montado con exec,nosuid,nodev."
+            return 0
+        fi
+
+        local source uuid fstype
+        source="$(ossec_mount_source)"
+        [ -n "$source" ] \
+            || fail "/var/ossec está montado pero no se pudo determinar el dispositivo."
+
+        uuid="$(blkid -s UUID -o value "$source" 2>/dev/null || true)"
+        fstype="$(blkid -s TYPE -o value "$source" 2>/dev/null || true)"
+        [ -n "$uuid" ] && [ -n "$fstype" ] \
+            || fail "No se pudo determinar UUID/filesystem de $source."
+
+        echo "==> Corrigiendo opciones de montaje de /var/ossec..."
+        mount -o remount,exec,nosuid,nodev /var/ossec \
+            || fail "No se pudo remontar /var/ossec con exec,nosuid,nodev."
+
+        ossec_mount_ready \
+            || fail "/var/ossec no quedó con exec,nosuid,nodev."
+
+        write_ossec_fstab "$uuid" "$fstype"
+        ok "/var/ossec corregido: exec,nosuid,nodev."
+        return 0
+    fi
+
+    if [ -L /var/ossec ]; then
+        fail "/var/ossec es un enlace simbólico. No se modificará."
+    fi
+
+    ensure_lvm
+
+    local backup_dir=""
+    if [ -d /var/ossec ] && [ "$(ls -A /var/ossec 2>/dev/null)" ]; then
+        backup_dir="/var/ossec.pre-lvm.$(date +%Y%m%d%H%M%S)"
+        mv /var/ossec "$backup_dir" \
+            || fail "No se pudo preservar el contenido existente de /var/ossec."
+        ok "Contenido existente preservado en $backup_dir."
+    elif [ -d /var/ossec ]; then
+        rmdir /var/ossec 2>/dev/null || true
+    fi
+
+    mkdir -p /var/ossec || fail "No se pudo crear /var/ossec."
+
+    local vg lv_device uuid fstype
+    vg="$(find_ossec_vg)"
+
+    if lvs --noheadings --options lv_name "$vg" 2>/dev/null |
+        awk -v target="$WAZUH_OSSEC_LV" '$1 == target { found=1 } END { exit !found }'
+    then
+        ok "LV $WAZUH_OSSEC_LV ya existe en VG $vg; se reutilizará."
+    else
+        echo "==> Creando LV $WAZUH_OSSEC_LV de $WAZUH_OSSEC_SIZE en $vg..."
+        lvcreate -n "$WAZUH_OSSEC_LV" -L "$WAZUH_OSSEC_SIZE" "$vg" \
+            || fail "No se pudo crear el LV $WAZUH_OSSEC_LV."
+    fi
+
+    lv_device="/dev/$vg/$WAZUH_OSSEC_LV"
+    [ -b "$lv_device" ] || fail "El dispositivo $lv_device no existe."
+
+    fstype="$(blkid -s TYPE -o value "$lv_device" 2>/dev/null || true)"
+    if [ -z "$fstype" ]; then
+        echo "==> Creando filesystem ext4 en $lv_device..."
+        mkfs.ext4 -F "$lv_device" >/dev/null 2>&1 \
+            || fail "No se pudo crear el filesystem ext4 en $lv_device."
+        fstype="ext4"
+    fi
+
+    uuid="$(blkid -s UUID -o value "$lv_device" 2>/dev/null || true)"
+    [ -n "$uuid" ] || fail "No se pudo obtener UUID de $lv_device."
+
+    write_ossec_fstab "$uuid" "$fstype"
+
+    mount /var/ossec \
+        || fail "No se pudo montar /var/ossec."
+
+    ossec_mount_ready \
+        || fail "/var/ossec no quedó montado con exec,nosuid,nodev."
+
+    chmod 0755 /var/ossec
+
+    if [ -n "$backup_dir" ]; then
+        echo "==> Restaurando contenido previo de /var/ossec..."
+        cp -a "$backup_dir"/. /var/ossec/ \
+            || fail "No se pudo restaurar el contenido previo de /var/ossec."
+        ok "Contenido previo restaurado desde $backup_dir."
+    fi
+
+    ok "/var/ossec montado en $lv_device con exec,nosuid,nodev."
+}
+
 install_agent() {
-    AGENT_NAME="${WAZUH_AGENT_NAME:-$DEFAULT_AGENT_NAME}"
-    MANAGER="${WAZUH_MANAGER:-$DEFAULT_MANAGER}"
-    GROUP="${WAZUH_AGENT_GROUP:-$DEFAULT_GROUP}"
-    PASSWORD="${WAZUH_REGISTRATION_PASSWORD:-}"
+    AGENT_NAME="\${WAZUH_AGENT_NAME:-$DEFAULT_AGENT_NAME}"
+    MANAGER="\${WAZUH_MANAGER:-$DEFAULT_MANAGER}"
+    GROUP="\${WAZUH_AGENT_GROUP:-$DEFAULT_GROUP}"
+    PASSWORD="\${WAZUH_REGISTRATION_PASSWORD:-}"
 
     echo
     echo "=== DATOS DE ENROLAMIENTO ==="
@@ -120,10 +351,7 @@ install_agent() {
     echo "Password: [oculta]"
     yesno "¿Proceder?" || fail "Instalación cancelada."
 
-    # /var/ossec se prepara solamente para instalaciones nuevas.
-    if ! mountpoint -q /var/ossec 2>/dev/null && [ -d /var/ossec ] && [ "$(ls -A /var/ossec 2>/dev/null)" ]; then
-        fail "/var/ossec contiene archivos pero no está montado. No se tocará."
-    fi
+    prepare_ossec_storage
 
     local rpm_file="wazuh-agent-$WAZUH_VERSION-1.x86_64.rpm"
     local url="https://packages.wazuh.com/4.x/yum/$rpm_file"
@@ -133,185 +361,16 @@ install_agent() {
     echo "==> $info"
     curl -fL -o "/tmp/$rpm_file" "$url" || fail "Falló la descarga."
 
-    if has yum; then
-        WAZUH_MANAGER="$MANAGER" WAZUH_REGISTRATION_SERVER="$MANAGER" \
-        WAZUH_REGISTRATION_PASSWORD="$PASSWORD" WAZUH_AGENT_NAME="$AGENT_NAME" \
-        WAZUH_AGENT_GROUP="$GROUP" yum localinstall -y "/tmp/$rpm_file" \
-        || fail "Falló yum."
-    elif has dnf; then
-        WAZUH_MANAGER="$MANAGER" WAZUH_REGISTRATION_SERVER="$MANAGER" \
-        WAZUH_REGISTRATION_PASSWORD="$PASSWORD" WAZUH_AGENT_NAME="$AGENT_NAME" \
-        WAZUH_AGENT_GROUP="$GROUP" dnf install -y "/tmp/$rpm_file" \
-        || fail "Falló dnf."
+    if agent_usable; then
+    ok "Wazuh Agent ya instalado y filesystem /var/ossec correcto: $(agent_version)"
+else
+    if agent_installed; then
+        warn "Wazuh Agent está instalado pero /var/ossec no es utilizable o client.keys no existe; se reparará."
     else
-        fail "No existe yum ni dnf."
+        warn "Wazuh Agent no está instalado."
     fi
-
-    rm -f "/tmp/$rpm_file"
-    agent_installed || fail "Wazuh Agent no quedó instalado."
-    [ -s /var/ossec/etc/client.keys ] || fail "No se generó client.keys."
-    ok "Wazuh Agent instalado: $(agent_version)"
-}
-
-restart_agent() {
-    if has systemctl; then
-        systemctl enable wazuh-agent >/dev/null 2>&1 || true
-        systemctl restart wazuh-agent || fail "No se pudo reiniciar wazuh-agent."
-        systemctl is-active --quiet wazuh-agent || fail "wazuh-agent no está activo."
-    else
-        chkconfig wazuh-agent on >/dev/null 2>&1 || true
-        service wazuh-agent restart || fail "No se pudo reiniciar wazuh-agent."
-        service wazuh-agent status >/dev/null 2>&1 || fail "No se pudo validar wazuh-agent."
-    fi
-    ok "wazuh-agent activo."
-}
-
-# ---------------------------------------------------------------------------
-# 2. Firewall: Shorewall > firewalld > iptables
-# ---------------------------------------------------------------------------
-
-shorewall_installed() {
-    has shorewall || (has rpm && rpm -q shorewall >/dev/null 2>&1)
-}
-
-configure_shorewall() {
-    has shorewall || fail "Shorewall está instalado pero el comando shorewall no existe."
-    [ -f /etc/shorewall/rules ] || fail "Shorewall está instalado pero no existe /etc/shorewall/rules."
-
-    # La regla se identifica por el tag ORANGEBOX-FW. No se agrega una segunda
-    # regla aunque ya exista una variante equivalente en el archivo.
-    local shorewall_changed=0
-
-    if grep -Fq 'ORANGEBOX-FW' /etc/shorewall/rules; then
-        ok "Regla ORANGEBOX-FW ya existe en Shorewall; no se modifica."
-    else
-        cp -p /etc/shorewall/rules \
-            "/etc/shorewall/rules.orangebox-backup.$(date +%Y%m%d%H%M%S)" \
-            || fail "No se pudo respaldar /etc/shorewall/rules."
-
-        cat >> /etc/shorewall/rules <<'EOF'
-
-# OrangeBox - Wazuh firewall logging
-# SOURCE: todos los orígenes externos hacia el firewall.
-# RATE: 20 conexiones/segundo, burst 40.
-LOG:info:ORANGEBOX-FW    all-    $FW    tcp    -    -    -    20/sec:40
-EOF
-
-        shorewall check >/dev/null 2>&1 \
-            || fail "Shorewall rechazó la configuración ORANGEBOX-FW."
-
-        ok "Regla ORANGEBOX-FW agregada y validada en Shorewall."
-    fi
-
-    shorewall check >/dev/null 2>&1 \
-        || fail "Shorewall rechazó la configuración existente."
-
-    # La configuración queda persistente en /etc/shorewall/rules.
-    # En EL6 Shorewall puede estar gestionado por init.d y el comando
-    # Solo reiniciamos Shorewall si acabamos de modificar la configuración.
-    # Si ORANGEBOX-FW ya existía, no se toca el firewall.
-    if [ "$shorewall_changed" -eq 1 ]; then
-        if has service && service shorewall status >/dev/null 2>&1; then
-            if shorewall restart >/dev/null 2>&1; then
-                ok "Shorewall reiniciado con la configuración OrangeBox."
-            else
-                fail "Se agregó la regla OrangeBox, pero no se pudo reiniciar Shorewall."
-            fi
-        elif has systemctl && systemctl is-active --quiet shorewall 2>/dev/null; then
-            if shorewall restart >/dev/null 2>&1; then
-                ok "Shorewall reiniciado con la configuración OrangeBox."
-            else
-                fail "Se agregó la regla OrangeBox, pero no se pudo reiniciar Shorewall."
-            fi
-        else
-            warn "Se agregó la regla OrangeBox, pero Shorewall no está activo; la configuración quedó persistente y será aplicada al iniciar Shorewall."
-        fi
-    fi
-}
-
-# iptables -C no es suficientemente portable para todas las versiones antiguas
-# soportadas (especialmente EL6). La detección se hace sobre iptables -L.
-iptables_input_rule_exists() {
-    iptables -L INPUT -n --line-numbers 2>/dev/null |
-        grep -E '[[:space:]]ORANGEBOX-FW([[:space:]]|$)' >/dev/null 2>&1
-}
-
-iptables_chain_exists() {
-    iptables -L ORANGEBOX-FW -n >/dev/null 2>&1
-}
-
-iptables_log_rule_exists() {
-    iptables -L ORANGEBOX-FW -n 2>/dev/null |
-        grep -F 'LOG' |
-        grep -F 'ORANGEBOX-FW' >/dev/null 2>&1
-}
-
-iptables_return_rule_exists() {
-    iptables -L ORANGEBOX-FW -n 2>/dev/null |
-        grep -E '[[:space:]]RETURN([[:space:]]|$)' >/dev/null 2>&1
-}
-
-iptables_config_ok() {
-    iptables_input_rule_exists && \
-    iptables_log_rule_exists && \
-    iptables_return_rule_exists
-}
-
-configure_iptables() {
-    has iptables || fail "iptables no está instalado."
-
-    if iptables_chain_exists; then
-        ok "Cadena ORANGEBOX-FW ya existe; no se crea otra."
-    else
-        echo "==> Creando cadena ORANGEBOX-FW..."
-        iptables -N ORANGEBOX-FW || fail "No se pudo crear ORANGEBOX-FW."
-    fi
-
-    # Si ya existe cualquier regla LOG asociada a ORANGEBOX-FW, no se agrega otra.
-    if iptables_log_rule_exists; then
-        ok "Regla LOG ORANGEBOX-FW ya existe; no se agrega otra."
-    else
-        echo "==> Agregando LOG a ORANGEBOX-FW..."
-        iptables -A ORANGEBOX-FW \
-            -m limit --limit 20/second --limit-burst 40 \
-            -j LOG --log-prefix "ORANGEBOX-FW: " --log-level 4 \
-            || fail "No se pudo agregar LOG a ORANGEBOX-FW."
-    fi
-
-    if iptables_return_rule_exists; then
-        ok "RETURN de ORANGEBOX-FW ya existe; no se agrega otro."
-    else
-        echo "==> Agregando RETURN a ORANGEBOX-FW..."
-        iptables -A ORANGEBOX-FW -j RETURN \
-            || fail "No se pudo agregar RETURN a ORANGEBOX-FW."
-    fi
-
-    if iptables_input_rule_exists; then
-        ok "Regla INPUT -> ORANGEBOX-FW ya existe; no se agrega otra."
-    else
-        echo "==> Conectando INPUT con ORANGEBOX-FW..."
-        iptables -I INPUT 1 \
-            -p tcp --tcp-flags SYN SYN \
-            ! -s 127.0.0.0/8 \
-            -j ORANGEBOX-FW \
-            || fail "No se pudo conectar INPUT con ORANGEBOX-FW."
-    fi
-
-    iptables_config_ok || fail "La configuración ORANGEBOX-FW no quedó completa o correcta."
-
-    if [ -f /etc/sysconfig/iptables ]; then
-        if has service && service iptables save >/dev/null 2>&1; then
-            ok "Configuración iptables persistida."
-        else
-            iptables-save > /etc/sysconfig/iptables \
-                || warn "No se pudo persistir la configuración iptables."
-        fi
-    else
-        warn "No existe /etc/sysconfig/iptables; no se fuerza persistencia."
-    fi
-
-    ok "Configuración ORANGEBOX-FW de iptables validada."
-}
+    install_agent
+fi
 
 configure_firewalld() {
     has firewall-cmd || fail "firewalld está activo pero firewall-cmd no existe."
@@ -535,8 +594,7 @@ configure_firewall
 configure_logging
 restart_agent
 
-agent_installed || fail "Verificación final: Wazuh Agent ausente."
-[ -s /var/ossec/etc/client.keys ] || fail "Verificación final: client.keys ausente."
+agent_usable || fail "Verificación final: Wazuh Agent o filesystem /var/ossec no quedaron correctamente configurados."
 
 if [ "$LOGGING_BACKEND" = "rsyslog" ]; then
     [ -f "$FIREWALL_LOG" ] || fail "Verificación final: log ausente."
