@@ -4,7 +4,9 @@ Documentación de `orangebox-webshell-core.yar`.
 
 ## Para qué sirve
 
-Este archivo contiene las detecciones YARA de **mayor confianza** para familias JSP observadas en compromisos reales de Zimbra/Carbonio.
+Este archivo contiene firmas YARA de **investigación** para familias JSP observadas en compromisos reales de Zimbra/Carbonio.
+
+Actualmente estas firmas no forman parte de un pipeline productivo FIM → YARA → alerta Wazuh; se mantienen versionadas para pruebas y evaluación.
 
 No busca palabras sueltas. Las condiciones combinan varias piezas que, juntas, forman un patrón de webshell.
 
