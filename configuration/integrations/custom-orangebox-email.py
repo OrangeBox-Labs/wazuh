@@ -88,6 +88,20 @@ FIREWALL_DROP_RULES = {
 
 
 # ============================================================
+# REGLAS SIN CORREO
+# ============================================================
+#
+# Estas reglas siguen generando la alerta Wazuh.
+# Solamente se evita el correo de la integracion.
+#
+# 10455 = posible DDoS distribuido.
+#
+NO_EMAIL_RULES = {
+    "10455",
+}
+
+
+# ============================================================
 # FUNCIONES AUXILIARES
 # ============================================================
 
@@ -514,7 +528,7 @@ groups = ", ".join(
 # nivel bajo y no cruza nuestro umbral de integracion, por lo
 # que tampoco genera un correo individual.
 #
-if rule_id in FIREWALL_DROP_RULES:
+if rule_id in FIREWALL_DROP_RULES or rule_id in NO_EMAIL_RULES:
     sys.exit(0)
 
 
