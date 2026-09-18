@@ -173,7 +173,7 @@ La fuente del evento es el mensaje `ORANGEBOX-FW:` generado por el kernel/iptabl
 
 En EL6 el agente recibe el log desde `/var/log/orangebox-firewall.log`.
 
-En EL7+ el instalador utiliza journald para el logging local del firewall; la recolección de journald debe estar explícitamente habilitada en la configuración del agente para que las reglas de red reciban esos eventos.
+En EL7+ el firewall escribe en journald. El agente Wazuh base utiliza su colector journald en sistemas systemd; la configuración compartida de OrangeBox conserva además la entrada del log dedicado para compatibilidad con EL6. No se crea un segundo pipeline de rsyslog para EL7+.
 
 Las reglas OrangeBox asociadas están en:
 
