@@ -292,7 +292,7 @@ def dashboard_html(summary, group, start, end, label, report):
     # KPI principal: cuatro números, sin párrafos intermedios.
     kpis = (
         "<tr><td style='padding:0 6px 9px;'>"
-        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>"
+        "<table role='presentation' width='100%' cellpadding='0' cellspacing='0' border='0'><tr>",
         kpi("Eventos", security_count, "detecciones"),
         kpi("Alta severidad", critical_count, "nivel Wazuh ≥ 13"),
         kpi("IPs atacantes", len(source_ips), "orígenes observados"),
