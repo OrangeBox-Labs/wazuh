@@ -202,6 +202,34 @@
     </rule>
 
     <!--
+        20006 - EXCEPCION PARA NEXTCLOUD / APACHE / SYSTEMD-USER
+
+        La regla nativa 40101 considera al usuario apache como "system user"
+        y genera nivel 12 cuando PAM registra una sesion exitosa.
+
+        En Nextcloud es normal que el cron de apache abra una sesion
+        systemd-user al ejecutar cron.php. El evento no representa un
+        login interactivo ni una autenticacion externa.
+
+        La excepcion queda deliberadamente restringida a:
+          - regla padre 40101;
+          - usuario apache;
+          - mecanismo systemd-user;
+          - mensaje PAM correspondiente a apache(uid=48).
+
+        No se suprime un login SSH exitoso de apache que llegue por otro
+        camino.
+    -->
+    <rule id="20006" level="0">
+        <if_sid>40101</if_sid>
+        <user>apache</user>
+        <match>systemd-user:session</match>
+        <regex type="pcre2">session opened for user apache\(uid=48\) by apache\(uid=0\)</regex>
+        <description>EXCEPCION: Sesion systemd-user automatica de Apache para procesos programados de Nextcloud.</description>
+        <group>authentication_success,orangebox_exception,orangebox_whitelist,nextcloud,</group>
+    </rule>
+
+    <!--
         La antigua whitelist 20005 por UID 995 fue eliminada.
         No se debe filtrar SUDO por UID, usuario o identidad de Zimbra.
         El control correcto se realiza por comando en 10005.
