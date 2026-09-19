@@ -1,86 +1,175 @@
 ---
-title: "Wazuh: cómo crear una regla sin inventar la rueda"
-description: "Tutorial corto y práctico para construir, probar y desplegar una regla personalizada de Wazuh usando un caso real."
+title: "Wazuh: cómo crear una regla desde un log real"
+description: "Tutorial práctico para entender el flujo de un evento, encontrar reglas existentes, crear una regla personalizada y probarla con wazuh-logtest."
 date: 2026-09-19
 tags: ["wazuh", "seguridad", "linux", "deteccion", "reglas"]
 categories: ["seguridad", "monitoreo"]
 ---
 
-# Wazuh: cómo crear una regla sin inventar la rueda
+# Wazuh: cómo crear una regla desde un log real
 
-Crear una regla de Wazuh no parte por abrir un XML y rezarle a los regex. 😈
+La forma más fácil de crear una regla Wazuh es **no empezar por la regla**.
 
-El camino correcto es:
+Primero miramos qué está ocurriendo en un agente, encontramos el log real y dejamos que Wazuh nos muestre qué entiende de ese evento.
 
-```text
-evento real
-   ↓
-ver qué regla nativa lo detecta
-   ↓
-crear una regla hija
-   ↓
-probar con wazuh-logtest
-   ↓
-desplegar
-```
-
-Vamos a hacerlo con una regla real de OrangeBox.
-
-## 1. Primero busca qué está detectando Wazuh
-
-Supongamos que queremos detectar **fallos SSH desde nuestra red interna**.
-
-Antes de escribir nada, buscamos qué regla nativa procesa esos eventos:
-
-```bash
-grep -Rni '<rule id="5712"' /var/ossec/ruleset/rules/
-```
-
-La idea es encontrar la definición de la regla nativa y entender qué evento produce, qué campos decodifica y qué podemos reutilizar.
-
-También podemos buscar por texto:
-
-```bash
-grep -Rni 'Failed password' /var/ossec/ruleset/rules/
-```
-
-No editamos nada dentro de `/var/ossec/ruleset/`. Es el ruleset oficial de Wazuh y una actualización puede sobrescribirlo.
-
-La documentación oficial recomienda colocar las reglas personalizadas en:
+La película completa es:
 
 ```text
-/var/ossec/etc/rules/
+Agente
+  ↓
+log de la aplicación / sistema
+  ↓
+Wazuh Agent lo recopila
+  ↓
+Wazuh Manager recibe el evento
+  ↓
+decoder
+  ↓
+reglas
+  ↓
+alerta
 ```
 
-En nuestro caso además las mantenemos versionadas en Git.
+Wazuh no adivina lo que pasa en el servidor. El agente tiene que estar configurado para recopilar esa fuente de logs, por ejemplo un archivo, journald o el log de una aplicación. citeturn407285search8turn407285search11
 
-## 2. Construimos la regla
+## 1. Empieza por el evento, no por el XML
 
-La regla OrangeBox que usamos para este caso es la **10007**:
+Supongamos que encontramos en un servidor este evento:
+
+```text
+Sep 19 03:50:01 argos.jhg.cl systemd[1105281]: pam_unix(systemd-user:session): session opened for user apache(uid=48) by apache(uid=0)
+```
+
+La pregunta no es todavía "¿cómo hago la regex?".
+
+La primera pregunta es:
+
+**¿Qué hace Wazuh con este log?**
+
+Para averiguarlo usamos:
+
+```bash
+/var/ossec/bin/wazuh-logtest
+```
+
+Pegamos exactamente el log real. Wazuh lo procesa en tres fases y nos muestra qué pudo extraer y qué reglas coincidieron. citeturn407285search0turn407285search1
+
+## 2. Phase 1, Phase 2 y Phase 3: las tres pistas
+
+### Phase 1: ¿Wazuh entiende la cabecera?
+
+Aquí vemos cosas básicas como:
+
+```text
+timestamp
+hostname
+program_name
+```
+
+Por ejemplo:
+
+```text
+program_name: 'systemd'
+```
+
+No estamos creando reglas todavía. Solo estamos viendo cómo entra el evento.
+
+### Phase 2: ¿qué decoder lo entiende?
+
+Aquí Wazuh intenta convertir el texto del log en información utilizable: usuario, IP, programa, puerto y otros campos. Los decoders existen precisamente para separar el log en esos campos. citeturn407285search3turn407285search5
+
+Esta fase es importante porque una regla puede trabajar sobre campos ya decodificados en vez de hacer una regex gigantesca sobre todo el log.
+
+### Phase 3: ¿ya existe una regla para esto?
+
+Acá está la pregunta que nos ahorra trabajo.
+
+Podemos recibir algo como:
+
+```text
+id: '40101'
+level: '12'
+description: 'System user successfully logged to the system.'
+```
+
+Perfecto: **Wazuh ya tiene una regla que reconoce este evento**.
+
+En ese caso no partimos de cero. Buscamos la definición de esa regla:
+
+```bash
+grep -Rni '<rule id="40101"' /var/ossec/ruleset/rules/
+```
+
+También podemos buscar por el texto de la regla o por alguna cadena característica del log:
+
+```bash
+grep -Rni 'System user successfully logged to the system' /var/ossec/ruleset/rules/
+```
+
+Las reglas oficiales y decoders de Wazuh están bajo `/var/ossec/ruleset/`. **No los editamos ahí**, porque el contenido de ese directorio puede cambiar con las actualizaciones. Para nuestras reglas usamos `/var/ossec/etc/`. citeturn407285search8turn407285search2
+
+## 3. ¿Y si no existe una regla que haga lo que necesitamos?
+
+Hay tres escenarios.
+
+**Ya existe una regla útil:** hacemos una regla hija y agregamos nuestra condición.
+
+**Existe el decoder, pero no una regla útil:** aprovechamos los campos que ya entrega el decoder y creamos nuestra regla.
+
+**No existe un decoder útil:** primero creamos un decoder y después la regla.
+
+Por eso conviene probar el log con `wazuh-logtest` **antes de escribir XML**. La propia documentación de Wazuh recomienda comprobar primero el decoder y las reglas actuales. citeturn407285search3
+
+## 4. Nuestro ejemplo real: la regla 20006
+
+En OrangeBox tuvimos un falso positivo con la regla nativa `40101`.
+
+El log era:
+
+```text
+session opened for user apache(uid=48) by apache(uid=0)
+```
+
+Wazuh lo clasificaba como `40101`, nivel 12.
+
+Pero en este caso el evento correspondía a una sesión `systemd-user` automática de Apache utilizada por procesos programados de Nextcloud.
+
+No queríamos desactivar `40101`. Queríamos **excluir solamente este caso concreto**.
+
+Ahí nace la regla personalizada `20006`:
 
 ```xml
-<rule id="10007" level="13">
-    <if_sid>5712</if_sid>
-    <match>from 192.168.|from 10.8.</match>
-    <description>ALERTA: Posible movimiento lateral. Rafaga de fallos SSH desde la red interna.</description>
-    <group>authentication_failed,lateral_movement,attack,orangebox_auth,privilege_escalation_root,</group>
+<rule id="20006" level="0">
+    <if_sid>40101</if_sid>
+    <user>apache</user>
+    <match>systemd-user:session</match>
+    <regex type="pcre2">session opened for user apache(?:\(uid=\d+\))? by (?:apache)?\(uid=0\)</regex>
+    <description>EXCEPCION: Sesion systemd-user automatica de Apache para procesos programados de Nextcloud.</description>
+    <group>authentication_success,orangebox_exception,orangebox_whitelist,nextcloud,</group>
 </rule>
 ```
 
-La gracia está en entender cada pieza:
+Acá la regla dice, en castellano:
 
-- `id="10007"`: ID de nuestra regla.
-- `level="13"`: severidad que tendrá la alerta.
-- `if_sid>5712</if_sid>`: solo se evalúa si antes coincidió la regla SSH 5712.
-- `match`: agregamos nuestra condición: el evento debe venir de `192.168.x.x` o `10.8.x.x`.
-- `description`: qué verá el operador.
-- `group`: categorías que podremos usar posteriormente para reportes, integraciones y correlaciones.
+```text
+Si primero coincidió 40101
+Y el usuario es apache
+Y el evento es systemd-user:session
+Y el mensaje tiene este patrón
+→ entonces este caso es una excepción y queda en nivel 0
+```
 
-No estamos reemplazando la regla 5712. Estamos construyendo una **regla hija** que agrega contexto a un evento que Wazuh ya sabe reconocer.
+El `<if_sid>40101</if_sid>` es la parte importante: **no estamos reemplazando la regla nativa**. Estamos agregando una condición más específica sobre un evento que Wazuh ya sabe reconocer.
 
-## 3. ¿Dónde ponemos el archivo?
+## 5. ¿Dónde se guarda nuestra regla?
 
-En nuestro proyecto:
+En el servidor:
+
+```text
+/var/ossec/etc/rules/orangebox-auth.xml
+```
+
+En nuestro repositorio:
 
 ```text
 configuration/
@@ -88,118 +177,81 @@ configuration/
     └── orangebox-auth.xml
 ```
 
-En el Wazuh Manager:
+Nuestro Manager carga las reglas personalizadas desde `etc/rules`. citeturn407285search2
+
+La idea es mantener separado:
 
 ```text
-/var/ossec/etc/rules/orangebox-auth.xml
+/var/ossec/ruleset/   → reglas oficiales de Wazuh
+/var/ossec/etc/rules/ → reglas nuestras
 ```
 
-Nuestro `ossec.conf` carga explícitamente ese directorio:
+Así una actualización de Wazuh no debería comerse nuestras modificaciones. citeturn407285search8
 
-```xml
-<rule_dir>etc/rules</rule_dir>
-```
+## 6. Probar la regla: el paso que evita la magia negra
 
-Así mantenemos separadas las reglas oficiales de Wazuh de las reglas propias de OrangeBox.
-
-## 4. Probamos antes de reiniciar nada
-
-Acá entra el amigo que evita horas de puteadas:
+Guardamos el archivo y volvemos a ejecutar:
 
 ```bash
 /var/ossec/bin/wazuh-logtest
 ```
 
-Pegamos **el evento real**, no uno inventado:
+Pegamos **el mismo evento real**.
+
+Si todo está bien, Phase 3 debería terminar en:
 
 ```text
-Sep 19 03:50:01 servidor sshd[12345]: Failed password for invalid user prueba from 192.168.1.50 port 54321 ssh2
+id: '20006'
+level: '0'
+description: 'EXCEPCION: Sesion systemd-user automatica de Apache para procesos programados de Nextcloud.'
 ```
 
-Y miramos las tres fases.
+Eso nos confirma que la regla coincide.
 
-La importante para nosotros es la tercera:
+Y acá aparece una diferencia importante:
 
-```text
-**Phase 3: Completed filtering (rules).
-    id: '10007'
-    level: '13'
-    description: 'ALERTA: Posible movimiento lateral. Rafaga de fallos SSH desde la red interna.'
-```
+**que `wazuh-logtest` funcione no significa todavía que el Manager de producción haya cargado el cambio.**
 
-Si termina en 5712 y nunca llega a 10007, la regla no está haciendo lo que pensamos.
-
-Si devuelve otra regla, tampoco hay que adivinar: volvemos a mirar el evento y la cadena de reglas.
-
-## 5. ¿Y si uso regex?
-
-Primero prueba si `match`, `field`, `user`, `srcip` u otra condición simple resuelve el problema.
-
-Cuando necesitas una expresión más compleja, ahí sí entra `pcre2`:
-
-```xml
-<regex type="pcre2">...</regex>
-```
-
-No metas un regex de 14 líneas porque te dio confianza después del tercer café. 😂
-
-Primero haz que coincida con el evento real y después endureces la condición.
-
-## 6. Cuando logtest funciona, recién desplegamos
-
-Guardar el archivo es suficiente para probarlo con `wazuh-logtest`.
-
-Para que el `wazuh-manager` que procesa producción cargue la modificación:
+Para probar reglas alcanza con guardar los archivos. Para que el Manager genere alertas usando la modificación hay que reiniciarlo:
 
 ```bash
 systemctl restart wazuh-manager
 ```
 
-Después volvemos a provocar o esperar el evento real y verificamos que la alerta generada tenga:
+Eso está documentado por Wazuh. citeturn407285search2
 
-- el ID correcto;
-- el nivel correcto;
-- la descripción esperada;
-- los grupos esperados;
-- y, si corresponde, la respuesta automática configurada.
+## La receta para cualquier regla
 
-## La receta corta
-
-Cuando tengas que crear una regla nueva:
+Cuando aparezca una necesidad nueva:
 
 ```text
-1. Consigue el evento real.
-2. Ejecuta wazuh-logtest.
-3. Averigua qué decoder y regla nativa lo procesan.
-4. Busca la definición en /var/ossec/ruleset/rules/.
-5. Crea tu regla en /var/ossec/etc/rules/.
-6. Hazla hija de la regla existente cuando corresponda.
-7. Prueba otra vez con wazuh-logtest.
-8. Recién entonces reinicia wazuh-manager.
+1. Mira el log real en el agente.
+2. Confirma que el agente esté recopilando esa fuente.
+3. Pasa el evento exacto por wazuh-logtest.
+4. Mira Phase 2: ¿hay decoder y campos útiles?
+5. Mira Phase 3: ¿ya existe una regla que lo reconoce?
+6. Si existe, úsala como base en vez de inventar otra desde cero.
+7. Si no existe, crea la regla o el decoder que falte.
+8. Guarda la regla en /var/ossec/etc/rules/.
+9. Prueba otra vez con wazuh-logtest.
+10. Cuando el resultado sea el esperado, reinicia el Manager.
 ```
 
-Eso es todo.
+Y recién después de eso vienen el correo, Active Response, dashboards, reportes y toda la parafernalia.
 
-La parte difícil viene después, cuando descubres que el log que tenías:
+Primero **hacer que Wazuh entienda correctamente el evento**.
 
-```text
-by (uid=0)
-```
+Después hacemos que haga cosas con él.
 
-en producción era:
+Porque escribir XML a tontas y a locas es fácil.
 
-```text
-by apache(uid=0)
-```
-
-y pasas una hora mirando el regex preguntándote por qué Wazuh te odia. 🤣
-
-Pero esa es otra historia.
+**Hacer que Wazuh detecte exactamente lo que querías y nada más... ahí está la gracia.** 😈
 
 ---
 
 **Documentación oficial:**
 
+- [Data analysis](https://documentation.wazuh.com/current/user-manual/ruleset/index.html)
 - [Custom rules](https://documentation.wazuh.com/current/user-manual/ruleset/rules/custom.html)
 - [Rules syntax](https://documentation.wazuh.com/current/user-manual/ruleset/ruleset-xml-syntax/rules.html)
 - [Testing decoders and rules](https://documentation.wazuh.com/current/user-manual/ruleset/testing.html)
