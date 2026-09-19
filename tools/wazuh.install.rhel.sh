@@ -26,6 +26,8 @@ RSYSLOG_FILE="/etc/rsyslog.d/orangebox-firewall.conf"
 WAZUH_FIREWALL_HELPER="/var/ossec/bin/orangebox-iptables"
 WAZUH_FIREWALL_STOP_HELPER="/var/ossec/bin/orangebox-iptables-stop"
 WAZUH_FIREWALL_SERVICE="/etc/systemd/system/orangebox-iptables.service"
+WAZUH_FIREWALL_SYSCTL_EL6="/etc/sysctl.conf"
+WAZUH_FIREWALL_SYSCTL_EL7="/etc/sysctl.d/99-orangebox-firewall.conf"
 EL_MAJOR=""
 LOGGING_BACKEND=""
 
@@ -398,6 +400,110 @@ restart_agent() {
         service wazuh-agent status >/dev/null 2>&1 || fail "No se pudo validar wazuh-agent."
     fi
     ok "wazuh-agent activo."
+}
+
+# ---------------------------------------------------------------------------
+# Consola del kernel: los mensajes LOG del firewall no deben ensuciar las TTY.
+# Persistimos un console_loglevel <= 3. Esto no impide que el mensaje siga
+# llegando a journald/rsyslog; solo evita su impresión en consola.
+# ---------------------------------------------------------------------------
+
+configure_kernel_console_logging() {
+    has sysctl || fail "sysctl no está disponible."
+
+    local current desired console_level v2 v3 v4 sysctl_file
+    current="$(cat /proc/sys/kernel/printk 2>/dev/null || true)"
+    set -- $current
+
+    [ "$#" -ge 4 ] || fail "No se pudo leer kernel.printk correctamente."
+
+    console_level="$1"
+    v2="$2"
+    v3="$3"
+    v4="$4"
+
+    case "$console_level" in
+        ''|*[!0-9]*) fail "Valor inválido de console_loglevel: $console_level." ;;
+    esac
+
+    if [ "$console_level" -gt 3 ]; then
+        desired="3 $v2 $v3 $v4"
+    else
+        desired="$console_level $v2 $v3 $v4"
+    fi
+
+    if [ "$EL_MAJOR" -ge 7 ] 2>/dev/null; then
+        sysctl_file="$WAZUH_FIREWALL_SYSCTL_EL7"
+        mkdir -p "$(dirname "$sysctl_file")" \
+            || fail "No se pudo crear $(dirname "$sysctl_file")."
+
+        if [ -f "$sysctl_file" ] \
+            && grep -Fxq "# OrangeBox - no mostrar LOG del firewall en la consola" "$sysctl_file" \
+            && grep -Fxq "kernel.printk = $desired" "$sysctl_file"; then
+            :
+        else
+            if [ -f "$sysctl_file" ]; then
+                cp -p "$sysctl_file" \
+                    "$sysctl_file.orangebox-backup.$(date +%Y%m%d%H%M%S)" \
+                    || fail "No se pudo respaldar $sysctl_file."
+            fi
+
+            cat > "$sysctl_file" <<EOF_SYSCTL
+# OrangeBox - no mostrar LOG del firewall en la consola
+# Los eventos siguen disponibles en journald/rsyslog para Wazuh.
+kernel.printk = $desired
+EOF_SYSCTL
+            chmod 644 "$sysctl_file" || fail "No se pudieron ajustar permisos de $sysctl_file."
+        fi
+
+        sysctl -p "$sysctl_file" >/dev/null 2>&1 \
+            || fail "No se pudo aplicar $sysctl_file."
+    else
+        sysctl_file="$WAZUH_FIREWALL_SYSCTL_EL6"
+        local tmp_sysctl
+        tmp_sysctl="$(mktemp)" || fail "No se pudo crear temporal para sysctl.conf."
+
+        if [ -f "$sysctl_file" ]; then
+            cp -p "$sysctl_file" \
+                "$sysctl_file.orangebox-backup.$(date +%Y%m%d%H%M%S)" \
+                || { rm -f "$tmp_sysctl"; fail "No se pudo respaldar $sysctl_file."; }
+
+            awk '
+                $0 == "# BEGIN OrangeBox firewall console logging" { skip=1; next }
+                $0 == "# END OrangeBox firewall console logging" { skip=0; next }
+                !skip { print }
+            ' "$sysctl_file" > "$tmp_sysctl" \
+                || { rm -f "$tmp_sysctl"; fail "No se pudo preparar $sysctl_file."; }
+        fi
+
+        printf '\n# BEGIN OrangeBox firewall console logging\n' >> "$tmp_sysctl"
+        printf '%s\n' "# Evita que los LOG del firewall aparezcan en las TTY; Wazuh sigue recibiéndolos." >> "$tmp_sysctl"
+        printf 'kernel.printk = %s\n' "$desired" >> "$tmp_sysctl"
+        printf '%s\n' "# END OrangeBox firewall console logging" >> "$tmp_sysctl"
+
+        cat "$tmp_sysctl" > "$sysctl_file" \
+            || { rm -f "$tmp_sysctl"; fail "No se pudo actualizar $sysctl_file."; }
+        rm -f "$tmp_sysctl"
+
+        sysctl -p "$sysctl_file" >/dev/null 2>&1 \
+            || fail "No se pudo aplicar $sysctl_file."
+    fi
+
+    local applied applied_console
+    applied="$(cat /proc/sys/kernel/printk 2>/dev/null || true)"
+    set -- $applied
+    [ "$#" -ge 1 ] || fail "No se pudo validar kernel.printk después de aplicar la configuración."
+    applied_console="$1"
+
+    case "$applied_console" in
+        ''|*[!0-9]*) fail "Valor inválido de console_loglevel después de aplicar la configuración: $applied_console." ;;
+    esac
+
+    if [ "$applied_console" -le 3 ]; then
+        ok "Consola del kernel ajustada: console_loglevel=$applied_console; los LOG OrangeBox no se mostrarán en TTY."
+    else
+        fail "kernel.printk quedó con console_loglevel=$applied_console; se esperaba <= 3."
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -981,6 +1087,7 @@ echo " OrangeBox - Wazuh Agent / Firewall Logging"
 echo "============================================================"
 
 detect_platform
+configure_kernel_console_logging
 
 if agent_installed; then
     ok "Wazuh Agent ya instalado: $(agent_version)"
