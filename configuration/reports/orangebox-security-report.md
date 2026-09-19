@@ -46,7 +46,7 @@ El filtro `--group` utiliza la pertenencia real de los agentes a grupos Wazuh me
 
 El destinatario se entrega explícitamente con `--email` y es obligatorio.
 
-El idioma por defecto es español. `--lang es|en` permite cambiar el idioma de títulos y etiquetas; las descripciones técnicas de Wazuh se conservan.
+El idioma por defecto es español. `--lang es|en` permite cambiar el idioma de títulos y etiquetas. En el reporte, las descripciones se presentan con un estándar único `OrangeBox: ...`, en español y sin prefijos redundantes como `ALERTA` o `ALERTA CRITICA`.
 
 ```bash
 orangebox-security-report.py --yesterday --group all --email <destinatario>
@@ -194,6 +194,26 @@ Si Wazuh incorpora una técnica que no tenga una explicación local, el script m
 ### Sistemas más afectados
 
 Muestra los sistemas con mayor cantidad de detecciones relevantes durante el período.
+
+## Normalización y exclusiones de ruido operacional
+
+El reporte aplica una capa de presentación independiente de las reglas de Wazuh para mantener un formato consistente.
+
+- Las descripciones mostradas usan el estándar **OrangeBox: ...**.
+- Se eliminan prefijos históricos como ALERTA, ALERTA CRITICA y ORANGEBOX: cuando aparecen en alertas antiguas.
+- Las reglas conocidas tienen descripciones normalizadas en español, incluyendo reglas nativas de Wazuh como 5402, 5403 y 40101.
+- La normalización **no modifica las reglas, los niveles de severidad ni las alertas almacenadas en Wazuh**.
+
+Existe además una exclusión de presentación específica para el ruido operacional conocido de los servidores de correo:
+
+```text
+mail2.jhg.cl          -> regla 5402
+zimbra10.orangebox.cl -> regla 5402
+```
+
+La regla 5402 corresponde a ejecuciones exitosas de sudo hacia root. En estos dos servidores su volumen es operacionalmente esperado y no aporta valor al reporte de seguridad, por lo que se excluye **solo del informe**.
+
+Esta exclusión no deshabilita la regla 5402, no elimina eventos de alerts.json y no afecta otras reglas de escalamiento de privilegios. Si la misma regla aparece en otro sistema, continúa siendo reportada normalmente.
 
 ## Qué se considera evento de seguridad
 
