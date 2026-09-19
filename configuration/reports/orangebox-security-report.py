@@ -46,6 +46,47 @@ FIM_GROUPS = {"syscheck", "syscheck_entry_added", "syscheck_entry_modified", "sy
 MALWARE_GROUPS = {"malware", "webshell", "orangebox_malware", "orangebox_webshell"}
 ATTACK_GROUPS = {"attack", "brute_force", "reconnaissance", "credential_discovery", "sensitive_file", "lateral_movement"}
 
+# Exclusiones de PRESENTACIÓN del informe. No eliminan alertas de Wazuh ni
+# modifican la detección; solo evitan ruido operacional conocido en el reporte.
+REPORT_EVENT_EXCLUSIONS = {
+    ("mail2.jhg.cl", "5402"),
+    ("zimbra10.orangebox.cl", "5402"),
+}
+
+# Descripciones normalizadas para que el informe use un único estándar:
+# "OrangeBox: ..." + descripción en español, sin "ALERTA", "CRITICA", etc.
+REPORT_DESCRIPTION_OVERRIDES = {
+    "5402": "OrangeBox: Ejecución exitosa de sudo con privilegios de root.",
+    "5403": "OrangeBox: Primer uso de sudo por el usuario.",
+    "40101": "OrangeBox: Sesión de usuario del sistema iniciada correctamente.",
+    "10004": "OrangeBox: Cambio de sesión a root mediante comando su.",
+    "10005": "OrangeBox: Ejecución de sudo hacia root con comando no autorizado por la whitelist OrangeBox.",
+    "10032": "OrangeBox: Configuración de SUDO modificada.",
+    "10034": "OrangeBox: Unidad o configuración persistente de SYSTEMD modificada.",
+    "10035": "OrangeBox: Configuración de CRON o ANACRON modificada.",
+    "10036": "OrangeBox: Configuración crítica de red, DNS o montaje modificada.",
+    "10037": "OrangeBox: Configuración de FIREWALL modificada.",
+    "10410": "OrangeBox: Archivo ejecutable creado en un directorio temporal.",
+    "10432": "OrangeBox: Permiso de ejecución añadido a un archivo en un directorio temporal.",
+    "10453": "OrangeBox: Posible escaneo de puertos TCP desde la misma IP de origen.",
+    "10454": "OrangeBox: Posible inundación TCP SYN desde la misma IP de origen.",
+    "10455": "OrangeBox: Posible ataque de denegación de servicio distribuida (DDoS).",
+}
+
+def report_description(rule_id, description):
+    """Devuelve la descripción estándar de presentación del informe."""
+    rid = str(rule_id)
+    if rid in REPORT_DESCRIPTION_OVERRIDES:
+        return REPORT_DESCRIPTION_OVERRIDES[rid]
+    # Normaliza reglas OrangeBox antiguas que aún puedan existir en alertas
+    # históricas, evitando que el reporte vuelva a mezclar prefijos/idiomas.
+    value = str(description or "Sin descripción").strip()
+    value = re.sub(r"^ALERTA(?: CRITICA)?:?\s*", "", value, flags=re.IGNORECASE)
+    value = re.sub(r"^ORANGEBOX:\s*", "", value, flags=re.IGNORECASE)
+    if value and value != "Sin descripción":
+        return f"OrangeBox: {value}"
+    return "OrangeBox: Sin descripción"
+
 MITRE_DESCRIPTIONS = {
     "T1110": "Fuerza bruta: intentos repetidos para obtener acceso mediante credenciales.",
     "T1110.001": "Intentos repetidos de acceso probando contraseñas.",
@@ -147,8 +188,7 @@ def period_bounds(mode, now):
         previous = first - timedelta(days=1); start = previous.replace(day=1); return datetime.combine(start, datetime.min.time(), now.tzinfo), datetime.combine(first, datetime.min.time(), now.tzinfo), "Mes anterior"
     year = today.replace(month=1, day=1)
     if mode == "thisyear": return datetime.combine(year, datetime.min.time(), now.tzinfo), now, "Año actual"
-    if mode == "lastyear":
-        start = year.replace(year=year.year - 1); return datetime.combine(start, datetime.min.time(), now.tzinfo), datetime.combine(year, datetime.min.time(), now.tzinfo), "Año anterior"
+    if mode == "lastyear":        start = year.replace(year=year.year - 1); return datetime.combine(start, datetime.min.time(), now.tzinfo), datetime.combine(year, datetime.min.time(), now.tzinfo), "Año anterior"
     if mode.startswith("date:"):
         day = datetime.strptime(mode[5:], "%Y-%m-%d").date(); return datetime.combine(day, datetime.min.time(), now.tzinfo), datetime.combine(day + timedelta(days=1), datetime.min.time(), now.tzinfo), day.strftime("%Y-%m-%d")
     raise SystemExit("Período no válido")
@@ -297,8 +337,7 @@ def load_events(start,end,allowed):
             try: file_day=datetime.strptime(f"{path.name[13:15]} {path.parent.name} {path.parent.parent.name}","%d %b %Y").date()
             except (ValueError, IndexError): file_day=None
         if file_day != seen_day: seen_day=file_day; seen=set()
-        for outer in iter_json(path):
-            rule=outer.get("rule") or {}; outer_rule=str(rule.get("id",""))
+        for outer in iter_json(path):            rule=outer.get("rule") or {}; outer_rule=str(rule.get("id",""))
             if outer_rule == FIREWALL_RULE:
                 # Los eventos 651 son el registro de la ejecución real de
                 # firewall-drop. Se procesan de forma independiente para no
@@ -330,7 +369,7 @@ def load_events(start,end,allowed):
                 if (command=="add" and valid_ip(src) and event_ts and start<=event_ts<end
                         and (allowed is None or agent_id in allowed)):
                     rule_id=str(alert_rule.get("id","unknown"))
-                    description=alert_rule.get("description","Firewall Drop")
+                    description=report_description(rule_id, alert_rule.get("description","Firewall Drop"))
                     row_key=(agent_id,agent_name,rule_id,description)
                     src_str=str(src)
                     firewall_rows[row_key].add(src_str)
@@ -347,6 +386,11 @@ def load_events(start,end,allowed):
             if key:
                 if key in seen: continue
                 seen.add(key)
+            # Algunas reglas nativas generan ruido operacional conocido en
+            # servidores concretos. Se excluyen solo del reporte, no de Wazuh.
+            if (event["agent_name"], event["rule_id"]) in REPORT_EVENT_EXCLUSIONS:
+                continue
+            event["description"] = report_description(event["rule_id"], event["description"])
             category=classify(event["rule_id"],event["groups"],event["level"]); event_agent=(event["agent_id"],event["agent_name"])
             if event["srcip"]: firewall_attempts[(event["agent_id"],event["rule_id"],event["srcip"])] += 1
             if category=="other": continue
@@ -447,8 +491,7 @@ def generate_html(summary,title,subtitle,period,group,lang="es"):
             rule_text="<br>".join(f"<span style='font-family:monospace;color:#d65d00;font-weight:bold;'>{esc(rule_id)}</span> — {esc(description)}" for rule_id,description in rules)
             durations=sorted({format_duration(firewall_timeouts.get(rule_id)) for rule_id,_ in rules})
             duration_text=", ".join(durations)
-            page.append(f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-size:12px;font-weight:bold;'>{esc(src)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{firewall_recurrence[src]:,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;line-height:1.4;overflow-wrap:anywhere;'>{rule_text}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;white-space:nowrap;'>{esc(duration_text)}</td></tr>")
-        page.append("</table></td></tr>")
+            page.append(f"<tr><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-family:monospace;font-size:12px;font-weight:bold;'>{esc(src)}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;text-align:center;font-weight:bold;font-size:12px;'>{firewall_recurrence[src]:,}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;line-height:1.4;overflow-wrap:anywhere;'>{rule_text}</td><td valign='top' style='border-top:1px solid #e3e9ec;padding:8px;font-size:11px;white-space:nowrap;'>{esc(duration_text)}</td></tr>")        page.append("</table></td></tr>")
         page.append(f"<tr><td style='padding:0 14px 12px;color:#78909c;font-size:11px;'>El tiempo mostrado corresponde al <b>tiempo de bloqueo configurado en Wazuh</b> para cada regla de respuesta automática; no representa necesariamente el tiempo restante de un bloqueo histórico.</td></tr>")
     else:
         page.append("<tr><td style='padding:10px 14px;color:#78909c;font-size:12px;'>No hubo IPs con más de una ejecución de firewall-drop durante el período.</td></tr>")
