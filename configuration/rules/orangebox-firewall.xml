@@ -71,7 +71,7 @@
     <rule id="10450" level="1">
         <if_sid>4100</if_sid>
         <regex type="pcre2">RES=0x00 SYN URGP=0</regex>
-        <description>ORANGEBOX: TCP SYN connection attempt</description>
+        <description>OrangeBox: TCP SYN connection attempt</description>
         <options>no_log</options>
         <group>connection_attempt,</group>
     </rule>
@@ -97,7 +97,7 @@
         <if_matched_sid>10450</if_matched_sid>
         <same_srcip />
         <different_dstport />
-        <description>ORANGEBOX: Posible escaneo de puertos TCP desde la misma IP de origen.</description>
+        <description>OrangeBox: Posible escaneo de puertos TCP desde la misma IP de origen.</description>
         <mitre>
             <id>T1046</id>
         </mitre>
@@ -121,7 +121,7 @@
         <if_matched_sid>10450</if_matched_sid>
         <same_srcip />
         <same_dstport />
-        <description>ORANGEBOX: Posible inundación TCP SYN desde la misma IP de origen.</description>
+        <description>OrangeBox: Posible inundación TCP SYN desde la misma IP de origen.</description>
         <mitre>
             <id>T1499</id>
         </mitre>
@@ -145,7 +145,7 @@
         <if_matched_sid>10450</if_matched_sid>
         <different_srcip />
         <same_dstport />
-        <description>ORANGEBOX: Posible ataque de denegación de servicio distribuida (DDoS).</description>
+        <description>OrangeBox: Posible ataque de denegación de servicio distribuida (DDoS).</description>
         <mitre>
             <id>T1498</id>
         </mitre>
