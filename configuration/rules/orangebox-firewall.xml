@@ -97,7 +97,7 @@
         <if_matched_sid>10450</if_matched_sid>
         <same_srcip />
         <different_dstport />
-        <description>ORANGEBOX: Possible TCP port scan from same source IP.</description>
+        <description>ORANGEBOX: Posible escaneo de puertos TCP desde la misma IP de origen.</description>
         <mitre>
             <id>T1046</id>
         </mitre>
@@ -121,7 +121,7 @@
         <if_matched_sid>10450</if_matched_sid>
         <same_srcip />
         <same_dstport />
-        <description>ORANGEBOX: Possible TCP SYN flood from same source IP.</description>
+        <description>ORANGEBOX: Posible inundación TCP SYN desde la misma IP de origen.</description>
         <mitre>
             <id>T1499</id>
         </mitre>
@@ -145,7 +145,7 @@
         <if_matched_sid>10450</if_matched_sid>
         <different_srcip />
         <same_dstport />
-        <description>ORANGEBOX: Possible distributed denial of service attack.</description>
+        <description>ORANGEBOX: Posible ataque de denegación de servicio distribuida (DDoS).</description>
         <mitre>
             <id>T1498</id>
         </mitre>
