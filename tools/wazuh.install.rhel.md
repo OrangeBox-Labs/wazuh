@@ -96,6 +96,20 @@ El flujo de instalación nueva crea un LV de **1 GiB (1 GB)** llamado `wazuh`. E
 
 El script nunca borra contenido existente de `/var/ossec`.
 
+## Consola del kernel
+
+El instalador ajusta de forma persistente `kernel.printk` para mantener `console_loglevel` en **3 o inferior**. Esto evita que los mensajes `LOG` del firewall OrangeBox aparezcan directamente en las TTY/console.
+
+El cambio afecta solo la visibilidad en consola: los eventos siguen siendo registrados por journald o rsyslog y continúan disponibles para Wazuh.
+
+En EL7+ se utiliza:
+
+```text
+/etc/sysctl.d/99-orangebox-firewall.conf
+```
+
+En EL6 se mantiene en `/etc/sysctl.conf` mediante un bloque administrado por OrangeBox.
+
 ## Firewall
 
 Aplica la precedencia:
