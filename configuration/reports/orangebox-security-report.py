@@ -337,7 +337,9 @@ def load_events(start,end,allowed):
             try: file_day=datetime.strptime(f"{path.name[13:15]} {path.parent.name} {path.parent.parent.name}","%d %b %Y").date()
             except (ValueError, IndexError): file_day=None
         if file_day != seen_day: seen_day=file_day; seen=set()
-        for outer in iter_json(path):            rule=outer.get("rule") or {}; outer_rule=str(rule.get("id",""))
+        for outer in iter_json(path):
+            rule=outer.get("rule") or {}
+            outer_rule=str(rule.get("id",""))
             if outer_rule == FIREWALL_RULE:
                 # Los eventos 651 son el registro de la ejecución real de
                 # firewall-drop. Se procesan de forma independiente para no
