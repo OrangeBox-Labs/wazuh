@@ -215,7 +215,7 @@
           - regla padre 40101;
           - usuario apache;
           - mecanismo systemd-user;
-          - mensaje PAM correspondiente a apache(uid=48).
+          - mensaje PAM correspondiente a apache, con las variantes de UID y proceso que genera systemd-user.
 
         No se suprime un login SSH exitoso de apache que llegue por otro
         camino.
@@ -224,7 +224,7 @@
         <if_sid>40101</if_sid>
         <user>apache</user>
         <match>systemd-user:session</match>
-        <regex type="pcre2">session opened for user apache(?:\(uid=\d+\))? by \(uid=0\)</regex>
+        <regex type="pcre2">session opened for user apache(?:\(uid=\d+\))? by (?:apache)?\(uid=0\)</regex>
         <description>EXCEPCION: Sesion systemd-user automatica de Apache para procesos programados de Nextcloud.</description>
         <group>authentication_success,orangebox_exception,orangebox_whitelist,nextcloud,</group>
     </rule>
